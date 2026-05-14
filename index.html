@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>棋盤小棋室</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <section class="board-panel" aria-label="棋盤">
+      <div class="top-bar">
+        <div>
+          <h1 id="appTitle">圍棋小棋室</h1>
+          <p id="statusText">黑棋先下</p>
+        </div>
+        <div class="turn-card" id="turnCard">
+          <span class="stone black" aria-hidden="true"></span>
+          <span id="turnText">黑棋</span>
+        </div>
+      </div>
+
+      <div class="board-wrap">
+        <canvas id="goBoard" width="900" height="900" aria-label="可點擊的棋盤"></canvas>
+      </div>
+    </section>
+
+    <aside class="side-panel">
+      <section class="controls" aria-label="棋局控制">
+        <div class="segmented" role="group" aria-label="棋盤模式">
+          <button class="active" data-mode="square">標準圍棋</button>
+          <button data-mode="hex">六氣棋盤</button>
+          <button data-mode="torus">甜甜圈棋盤</button>
+        </div>
+
+        <div class="segmented" id="sizeButtons" role="group" aria-label="棋盤大小"></div>
+
+        <div class="score-grid">
+          <div>
+            <span>黑提子</span>
+            <strong id="blackCaptures">0</strong>
+          </div>
+          <div>
+            <span>白提子</span>
+            <strong id="whiteCaptures">0</strong>
+          </div>
+        </div>
+
+        <div class="button-grid">
+          <button id="passBtn">Pass</button>
+          <button id="undoBtn">悔棋</button>
+          <button id="deadModeBtn" aria-pressed="false">提死子</button>
+          <button id="scoreBtn">數子判定</button>
+          <button id="ownershipModeBtn" aria-pressed="false">校正歸屬</button>
+          <button id="newGameBtn" class="wide">新棋局</button>
+        </div>
+      </section>
+
+      <section class="result-panel" aria-live="polite">
+        <h2>數子結果</h2>
+        <p id="scoreIntro">按「數子判定」後，棋盤會標出黑地、白地與中立點。</p>
+        <div class="result-grid">
+          <div>
+            <span>黑棋</span>
+            <strong id="blackArea">-</strong>
+            <small id="blackBreakdown">棋子 -，地 -</small>
+          </div>
+          <div>
+            <span>白棋</span>
+            <strong id="whiteArea">-</strong>
+            <small id="whiteBreakdown">棋子 -，地 -</small>
+          </div>
+        </div>
+        <p id="winnerText" class="winner">尚未判定</p>
+        <p id="marginText" class="margin-text">點數差與子數差會顯示在這裡。</p>
+        <div class="legend" aria-label="棋盤標記說明">
+          <span><i class="mark black-mark"></i>黑地</span>
+          <span><i class="mark white-mark"></i>白地</span>
+          <span><i class="mark neutral-mark"></i>中立</span>
+          <span><i class="mark dead-mark"></i>死子</span>
+        </div>
+        <div class="row-score-wrap">
+          <h3>逐行加總</h3>
+          <table class="row-score-table">
+            <thead>
+              <tr>
+                <th>路</th>
+                <th>黑子</th>
+                <th>黑地</th>
+                <th>黑合</th>
+                <th>白子</th>
+                <th>白地</th>
+                <th>白合</th>
+                <th>中立</th>
+              </tr>
+            </thead>
+            <tbody id="rowBreakdown">
+              <tr><td colspan="8">尚未判定</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="rules-note">
+        <h2>目前模式</h2>
+        <p id="rulesText">標準圍棋使用四個相鄰方向。六氣棋盤使用六角網格，每顆棋最多有六口氣。兩種模式都支援落子、提子、禁自殺、劫、Pass、悔棋與終局校正。</p>
+      </section>
+
+      <section class="move-log">
+        <h2>棋譜</h2>
+        <ol id="moveLog"></ol>
+      </section>
+    </aside>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
