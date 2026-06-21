@@ -10,21 +10,46 @@ const blackAreaEl = document.querySelector("#blackArea");
 const whiteAreaEl = document.querySelector("#whiteArea");
 const blackBreakdownEl = document.querySelector("#blackBreakdown");
 const whiteBreakdownEl = document.querySelector("#whiteBreakdown");
+const blackWinrateText = document.querySelector("#blackWinrateText");
+const whiteWinrateText = document.querySelector("#whiteWinrateText");
+const blackWinrateBar = document.querySelector("#blackWinrateBar");
+const winratePreviewBar = document.querySelector("#winratePreviewBar");
 const winnerText = document.querySelector("#winnerText");
 const marginText = document.querySelector("#marginText");
 const scoreIntro = document.querySelector("#scoreIntro");
 const rowBreakdown = document.querySelector("#rowBreakdown");
 const moveLog = document.querySelector("#moveLog");
+const gameHistoryList = document.querySelector("#gameHistoryList");
+const gameHistoryEmpty = document.querySelector("#gameHistoryEmpty");
+const gameHistoryActions = document.querySelector("#gameHistoryActions");
 const sizeButtons = document.querySelector("#sizeButtons");
 const rulesText = document.querySelector("#rulesText");
 const deadModeBtn = document.querySelector("#deadModeBtn");
+const scoreBtn = document.querySelector("#scoreBtn");
 const ownershipModeBtn = document.querySelector("#ownershipModeBtn");
+const moveNumberToggle = document.querySelector("#moveNumberToggle");
+const aiStrengthPanel = document.querySelector("#aiStrengthPanel");
+const startScreen = document.querySelector("#startScreen");
+const gameShell = document.querySelector("#gameShell");
+const traditionalModeBtn = document.querySelector("#traditionalModeBtn");
+const aiModeBtn = document.querySelector("#aiModeBtn");
+const onlineModeBtn = document.querySelector("#onlineModeBtn");
+const onlineAiHintModeBtn = document.querySelector("#onlineAiHintModeBtn");
+const backMenuBtn = document.querySelector("#backMenuBtn");
+const confirmDialog = document.querySelector("#confirmDialog");
+const confirmDialogTitle = document.querySelector("#confirmDialogTitle");
+const confirmDialogMessage = document.querySelector("#confirmDialogMessage");
+const cancelDialogBtn = document.querySelector("#cancelDialogBtn");
+const confirmDialogBtn = document.querySelector("#confirmDialogBtn");
 
 const EMPTY = 0;
 const BLACK = 1;
 const WHITE = 2;
 const NEUTRAL = 3;
 const KOMI = 7.5;
+const GAME_HISTORY_KEY = "go-board-room-finished-games";
+const GAME_HISTORY_LIMIT = 60;
+const GAME_HISTORY_COLLAPSED_COUNT = 6;
 const LETTERS = "ABCDEFGHJKLMNOPQRST";
 const BOPOMOFO = ["ㄅ", "ㄆ", "ㄇ", "ㄈ", "ㄉ", "ㄊ", "ㄋ", "ㄌ", "ㄍ", "ㄎ", "ㄏ", "ㄐ", "ㄑ", "ㄒ", "ㄓ", "ㄔ", "ㄕ", "ㄖ", "ㄗ"];
 
@@ -39,20 +64,39 @@ let size = 19;
 let points = [];
 let board = {};
 let deadMap = {};
+let moveNumbers = {};
 let turn = BLACK;
 let captures = { [BLACK]: 0, [WHITE]: 0 };
 let history = [];
 let log = [];
+let moveCounter = 0;
+let lastMoveKey = null;
+let showAllMoveNumbers = false;
 let previousBoardKey = null;
 let passCount = 0;
 let gameOver = false;
 let deadStoneMode = false;
 let ownershipMode = false;
 let scoreState = null;
+let scoreVisible = false;
 let layout = null;
 let torusView = { u: 0, v: 0 };
 let torusDrag = null;
 let suppressNextClick = false;
+let pendingMoveKey = null;
+let playMode = "traditional";
+let aiThinking = false;
+let pendingConfirmAction = null;
+let aiStrength = "20k";
+let currentFinishedGameId = null;
+let isGameHistoryExpanded = false;
+
+const AI_STRENGTHS = {
+  "30k": { label: "30級", candidateCount: 14, randomness: 18, depthBonus: 0.55 },
+  "20k": { label: "20級", candidateCount: 7, randomness: 5, depthBonus: 1 },
+  "10k": { label: "10級", candidateCount: 2, randomness: 0.5, depthBonus: 1.45 },
+  "1d": { label: "1段", candidateCount: 1, randomness: 0, depthBonus: 2 },
+};
 
 function colorName(color) {
   return color === BLACK ? "黑棋" : "白棋";
@@ -60,6 +104,31 @@ function colorName(color) {
 
 function opponent(color) {
   return color === BLACK ? WHITE : BLACK;
+}
+
+function startGame(nextPlayMode) {
+  playMode = nextPlayMode;
+  aiThinking = false;
+  startScreen.classList.add("is-hidden");
+  gameShell.classList.remove("is-hidden");
+  resetGame("square", 19);
+  setStatus(playMode === "ai" ? "AI 對弈：你執黑先下。" : "傳統下棋：黑棋先下。");
+  render();
+}
+
+function showMainMenu() {
+  aiThinking = false;
+  gameShell.classList.add("is-hidden");
+  startScreen.classList.remove("is-hidden");
+}
+
+function hasStartedGame() {
+  return moveCounter > 0 || log.length > 0;
+}
+
+function requestMainMenu() {
+  if (hasStartedGame() && !window.confirm("棋局已開始，確定離開嗎？")) return;
+  showMainMenu();
 }
 
 function keyOf(a, b) {
@@ -163,21 +232,316 @@ function cloneScoreState(state) {
   };
 }
 
+function loadGameHistoryRecords() {
+  try {
+    const records = JSON.parse(localStorage.getItem(GAME_HISTORY_KEY) || "[]");
+    return Array.isArray(records) ? records : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveGameHistoryRecords(records) {
+  try {
+    localStorage.setItem(GAME_HISTORY_KEY, JSON.stringify(records.slice(0, GAME_HISTORY_LIMIT)));
+  } catch {
+    setStatus("這個瀏覽器暫時不能保存歷史棋局。");
+  }
+}
+
+function modeLabel(recordMode) {
+  if (recordMode === "hex") return "六氣棋盤";
+  if (recordMode === "torus") return "甜甜圈棋盤";
+  return "標準圍棋";
+}
+
+function defaultHistoryTitle(record) {
+  return `${modeLabel(record.mode)} ${record.size} 路`;
+}
+
+function renameHistoryRecord(id, nextName) {
+  const records = loadGameHistoryRecords();
+  const record = records.find((item) => item.id === id);
+  if (!record) return "";
+  const fallback = defaultHistoryTitle(record);
+  record.name = (nextName.trim() || fallback).slice(0, 40);
+  saveGameHistoryRecords(records);
+  return record.name;
+}
+
+function compactCells(source) {
+  const cells = {};
+  for (const point of points) {
+    if (source[point.key]) cells[point.key] = source[point.key];
+  }
+  return cells;
+}
+
+function saveFinishedGame() {
+  if (!scoreState || moveCounter === 0) return;
+  if (!currentFinishedGameId) currentFinishedGameId = `game-${Date.now()}`;
+  const records = loadGameHistoryRecords();
+  const existingRecord = records.find((item) => item.id === currentFinishedGameId);
+
+  const record = {
+    id: currentFinishedGameId,
+    name: existingRecord?.name || defaultHistoryTitle({ mode, size }),
+    finishedAt: new Date().toISOString(),
+    mode,
+    size,
+    playMode,
+    moves: moveCounter,
+    turn,
+    board: compactCells(board),
+    deadMap: compactCells(deadMap),
+    moveNumbers: cloneCells(moveNumbers),
+    points: points.map((point) => ({ ...point })),
+    captures: { ...captures },
+    log: log.slice(),
+    previousBoardKey,
+    passCount,
+    lastMoveKey,
+    score: {
+      blackTotal: scoreState.blackTotal,
+      whiteTotal: scoreState.whiteTotal,
+      whiteWithKomi: scoreState.whiteWithKomi,
+      winner: scoreState.winner,
+      margin: scoreState.margin,
+    },
+  };
+
+  const existingIndex = records.findIndex((item) => item.id === record.id);
+  if (existingIndex >= 0) records.splice(existingIndex, 1);
+  records.unshift(record);
+  saveGameHistoryRecords(records);
+}
+
+function formatHistoryTime(value) {
+  return new Date(value).toLocaleString("zh-TW", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function drawHistoryStone(context, x, y, radius, color, moveNumber = null) {
+  const gradient = context.createRadialGradient(x - radius * 0.32, y - radius * 0.38, radius * 0.15, x, y, radius);
+  if (color === BLACK) {
+    gradient.addColorStop(0, "#4b4f56");
+    gradient.addColorStop(0.45, "#171a1f");
+    gradient.addColorStop(1, "#020304");
+  } else {
+    gradient.addColorStop(0, "#ffffff");
+    gradient.addColorStop(0.55, "#f3f6f8");
+    gradient.addColorStop(1, "#c8d0d8");
+  }
+  context.fillStyle = gradient;
+  context.beginPath();
+  context.arc(x, y, radius, 0, Math.PI * 2);
+  context.fill();
+
+  if (moveNumber) {
+    context.fillStyle = color === BLACK ? "#f8fafc" : "#20242a";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.font = `800 ${moveNumber >= 100 ? radius * 0.58 : radius * 0.74}px Segoe UI, sans-serif`;
+    context.fillText(String(moveNumber), x, y + radius * 0.03);
+  }
+}
+
+function drawHistoryPreview(canvas, record) {
+  const context = canvas.getContext("2d");
+  const width = canvas.width;
+  const height = canvas.height;
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = "#d8a14a";
+  context.fillRect(0, 0, width, height);
+  context.strokeStyle = "rgba(74, 47, 18, 0.72)";
+  context.lineWidth = 1.4;
+
+  if (record.mode === "hex") {
+    drawHexHistoryPreview(context, record, width, height);
+    return;
+  }
+
+  const pad = 20;
+  const boardSize = Math.min(width, height) - pad * 2;
+  const gap = boardSize / Math.max(1, record.size - 1);
+  for (let i = 0; i < record.size; i++) {
+    const pos = pad + i * gap;
+    context.beginPath();
+    context.moveTo(pad, pos);
+    context.lineTo(pad + boardSize, pos);
+    context.moveTo(pos, pad);
+    context.lineTo(pos, pad + boardSize);
+    context.stroke();
+  }
+
+  const stoneRadius = Math.max(2, gap * 0.42);
+  for (const point of record.points) {
+    const color = record.board[point.key];
+    if (!color) continue;
+    drawHistoryStone(context, pad + point.a * gap, pad + point.b * gap, stoneRadius, color, record.moveNumbers?.[point.key]);
+  }
+}
+
+function drawHexHistoryPreview(context, record, width, height) {
+  const coords = record.points.map((point) => ({
+    ...point,
+    x: point.a + point.b * 0.5,
+    y: point.b * 0.88,
+  }));
+  const minX = Math.min(...coords.map((point) => point.x));
+  const maxX = Math.max(...coords.map((point) => point.x));
+  const minY = Math.min(...coords.map((point) => point.y));
+  const maxY = Math.max(...coords.map((point) => point.y));
+  const pad = 20;
+  const scale = Math.min((width - pad * 2) / Math.max(1, maxX - minX), (height - pad * 2) / Math.max(1, maxY - minY));
+  const offsetX = (width - (maxX - minX) * scale) / 2;
+  const offsetY = (height - (maxY - minY) * scale) / 2;
+  const radius = Math.max(2, scale * 0.34);
+
+  for (const point of coords) {
+    const x = offsetX + (point.x - minX) * scale;
+    const y = offsetY + (point.y - minY) * scale;
+    context.fillStyle = "rgba(74, 47, 18, 0.28)";
+    context.beginPath();
+    context.arc(x, y, 1.7, 0, Math.PI * 2);
+    context.fill();
+    const color = record.board[point.key];
+    if (color) drawHistoryStone(context, x, y, radius, color, record.moveNumbers?.[point.key]);
+  }
+}
+
+function inferTurnFromRecord(record) {
+  return (record.moves || 0) % 2 === 0 ? BLACK : WHITE;
+}
+
+function maxStoredMoveNumber(record) {
+  return Math.max(0, ...Object.values(record.moveNumbers || {}).map((value) => Number(value) || 0));
+}
+
+function loadHistoryRecord(record) {
+  clearPendingMove();
+  hideConfirmDialog();
+  aiThinking = false;
+  startScreen.classList.add("is-hidden");
+  gameShell.classList.remove("is-hidden");
+
+  setupBoard(record.mode || "square", record.size || 9);
+  board = { ...board, ...(record.board || {}) };
+  deadMap = { ...deadMap, ...(record.deadMap || {}) };
+  moveNumbers = cloneCells(record.moveNumbers || {});
+  moveCounter = record.moves || maxStoredMoveNumber(record);
+  lastMoveKey = record.lastMoveKey || null;
+  currentFinishedGameId = record.id;
+  previousBoardKey = record.previousBoardKey || null;
+  passCount = record.passCount || 0;
+  captures = { [BLACK]: record.captures?.[BLACK] || 0, [WHITE]: record.captures?.[WHITE] || 0 };
+  history = [];
+  log = Array.isArray(record.log) ? record.log.slice() : [`已載入 ${record.name || defaultHistoryTitle(record)}`];
+  turn = record.turn || inferTurnFromRecord(record);
+  playMode = record.playMode || "traditional";
+  gameOver = false;
+  deadStoneMode = false;
+  ownershipMode = false;
+  scoreState = null;
+  scoreVisible = false;
+  setStatus(`已載入「${record.name || defaultHistoryTitle(record)}」，輪到 ${colorName(turn)}。`);
+  render();
+  scheduleAiMove();
+}
+
+function createHistoryToggleButton(hiddenCount) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "history-toggle";
+  const isExpanded = isGameHistoryExpanded;
+  button.innerHTML = `
+    <span class="history-toggle-icon" aria-hidden="true">${isExpanded ? "⌃" : "⌄"}</span>
+    <span>${isExpanded ? "顯示較少" : "顯示更多"}</span>
+    <small>${isExpanded ? "收起到最新 6 盤" : `還有 ${hiddenCount} 盤`}</small>
+  `;
+  button.addEventListener("click", () => {
+    isGameHistoryExpanded = !isGameHistoryExpanded;
+    renderGameHistory();
+  });
+  return button;
+}
+
+function renderGameHistory() {
+  if (!gameHistoryList || !gameHistoryEmpty) return;
+  const records = loadGameHistoryRecords();
+  const shouldCollapse = !isGameHistoryExpanded && records.length > GAME_HISTORY_COLLAPSED_COUNT;
+  const visibleRecords = shouldCollapse ? records.slice(0, GAME_HISTORY_COLLAPSED_COUNT) : records;
+  gameHistoryList.innerHTML = "";
+  if (gameHistoryActions) gameHistoryActions.innerHTML = "";
+  gameHistoryList.classList.toggle("is-scrollable", isGameHistoryExpanded && records.length > 9);
+  gameHistoryEmpty.classList.toggle("is-hidden", records.length > 0);
+
+  for (const record of visibleRecords) {
+    const card = document.createElement("article");
+    card.className = "history-card";
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    card.setAttribute("aria-label", `載入 ${record.name || defaultHistoryTitle(record)}`);
+    card.addEventListener("click", (event) => {
+      if (event.target.closest(".history-title-input")) return;
+      loadHistoryRecord(record);
+    });
+    card.addEventListener("keydown", (event) => {
+      if (event.target.closest(".history-title-input")) return;
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        loadHistoryRecord(record);
+      }
+    });
+    const canvas = document.createElement("canvas");
+    canvas.width = 220;
+    canvas.height = 220;
+    const title = document.createElement("input");
+    title.className = "history-title-input";
+    title.type = "text";
+    title.value = record.name || defaultHistoryTitle(record);
+    title.setAttribute("aria-label", "棋局名稱");
+    title.addEventListener("blur", () => {
+      title.value = renameHistoryRecord(record.id, title.value);
+    });
+    title.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") title.blur();
+    });
+    const detail = document.createElement("p");
+    detail.textContent = `${formatHistoryTime(record.finishedAt)} · ${record.moves} 手 · ${colorName(record.score.winner)}勝 ${record.score.margin.toFixed(1)} 點`;
+    card.append(canvas, title, detail);
+    gameHistoryList.append(card);
+    drawHistoryPreview(canvas, record);
+  }
+
+  if (gameHistoryActions && records.length > GAME_HISTORY_COLLAPSED_COUNT) {
+    gameHistoryActions.append(createHistoryToggleButton(records.length - GAME_HISTORY_COLLAPSED_COUNT));
+  }
+}
+
 function pushHistory() {
   history.push({
     mode,
     size,
     board: cloneCells(board),
     deadMap: cloneCells(deadMap),
+    moveNumbers: cloneCells(moveNumbers),
     turn,
     captures: { ...captures },
     log: log.slice(),
+    moveCounter,
+    lastMoveKey,
     previousBoardKey,
     passCount,
     gameOver,
     deadStoneMode,
     ownershipMode,
     scoreState: cloneScoreState(scoreState),
+    scoreVisible,
   });
 }
 
@@ -185,21 +549,278 @@ function restore(state) {
   setupBoard(state.mode, state.size);
   board = cloneCells(state.board);
   deadMap = cloneCells(state.deadMap);
+  moveNumbers = cloneCells(state.moveNumbers || {});
   turn = state.turn;
   captures = { ...state.captures };
   log = state.log.slice();
+  moveCounter = state.moveCounter || 0;
+  lastMoveKey = state.lastMoveKey || null;
   previousBoardKey = state.previousBoardKey;
   passCount = state.passCount;
   gameOver = state.gameOver;
   deadStoneMode = state.deadStoneMode;
   ownershipMode = state.ownershipMode;
   scoreState = cloneScoreState(state.scoreState);
+  scoreVisible = Boolean(state.scoreVisible);
   render();
 }
 
-function tryPlay(key) {
+function clearPendingMove() {
+  pendingMoveKey = null;
+}
+
+function setPendingMove(key) {
+  pendingMoveKey = key;
+  setStatus(`預覽 ${colorName(turn)} ${labelOfKey(key)}，再點一次確認落子。`);
+  render();
+}
+
+function simulateMove(source, key, color, checkKo = false) {
+  if (source[key] !== EMPTY) return null;
+  const next = cloneCells(source);
+  next[key] = color;
+  let capturedCount = 0;
+  const enemy = opponent(color);
+  const checked = new Set();
+
+  for (const nextKey of neighborsOfKey(key)) {
+    if (next[nextKey] !== enemy || checked.has(nextKey)) continue;
+    const group = getGroup(next, nextKey);
+    group.stones.forEach((stoneKey) => checked.add(stoneKey));
+    if (group.liberties.size === 0) {
+      capturedCount += group.stones.length;
+      group.stones.forEach((stoneKey) => {
+        next[stoneKey] = EMPTY;
+      });
+    }
+  }
+
+  const ownGroup = getGroup(next, key);
+  if (ownGroup.liberties.size === 0) return null;
+  if (checkKo && previousBoardKey && boardKey(next) === previousBoardKey) return null;
+  return {
+    key,
+    capturedCount,
+    liberties: ownGroup.liberties.size,
+    groupSize: ownGroup.stones.length,
+    next,
+  };
+}
+
+function previewMove(key, color) {
+  return simulateMove(board, key, color, true);
+}
+
+function summarizePosition(source) {
+  const seen = new Set();
+  const summary = {
+    whiteStones: 0,
+    blackStones: 0,
+    whiteLiberties: 0,
+    blackLiberties: 0,
+    weakWhiteGroups: 0,
+    weakWhiteStones: 0,
+    weakBlackGroups: 0,
+    weakBlackStones: 0,
+    minWhiteLiberties: Infinity,
+    minBlackLiberties: Infinity,
+  };
+
+  for (const point of points) {
+    const color = source[point.key];
+    if (color === EMPTY || seen.has(point.key)) continue;
+    const group = getGroup(source, point.key);
+    group.stones.forEach((stoneKey) => seen.add(stoneKey));
+
+    if (color === WHITE) {
+      summary.whiteStones += group.stones.length;
+      summary.whiteLiberties += group.liberties.size;
+      summary.minWhiteLiberties = Math.min(summary.minWhiteLiberties, group.liberties.size);
+      if (group.liberties.size <= 2) {
+        summary.weakWhiteGroups += 1;
+        summary.weakWhiteStones += group.stones.length;
+      }
+    } else if (color === BLACK) {
+      summary.blackStones += group.stones.length;
+      summary.blackLiberties += group.liberties.size;
+      summary.minBlackLiberties = Math.min(summary.minBlackLiberties, group.liberties.size);
+      if (group.liberties.size <= 2) {
+        summary.weakBlackGroups += 1;
+        summary.weakBlackStones += group.stones.length;
+      }
+    }
+  }
+
+  if (summary.minWhiteLiberties === Infinity) summary.minWhiteLiberties = 0;
+  if (summary.minBlackLiberties === Infinity) summary.minBlackLiberties = 0;
+
+  return summary;
+}
+
+function strongestCaptureReply(source, color) {
+  let best = { capturedCount: 0, liberties: 0, key: null };
+  for (const point of points) {
+    const reply = simulateMove(source, point.key, color);
+    if (!reply) continue;
+    if (
+      reply.capturedCount > best.capturedCount
+      || (reply.capturedCount === best.capturedCount && reply.liberties > best.liberties)
+    ) {
+      best = reply;
+    }
+  }
+  return best;
+}
+
+function estimateAiMove(move) {
+  const strength = AI_STRENGTHS[aiStrength];
+  const { a, b } = parseKey(move.key);
+  const before = summarizePosition(board);
+  const summary = summarizePosition(move.next);
+  const blackReply = strongestCaptureReply(move.next, BLACK);
+  let friendlyNeighbors = 0;
+  let enemyNeighbors = 0;
+
+  for (const nextKey of neighborsOfKey(move.key)) {
+    if (move.next[nextKey] === WHITE) friendlyNeighbors += 1;
+    if (move.next[nextKey] === BLACK) enemyNeighbors += 1;
+  }
+  const selfEyePenalty = friendlyNeighbors >= 3 && enemyNeighbors === 0 && move.capturedCount === 0 ? 16 : 0;
+
+  const center = mode === "square" || mode === "torus"
+    ? (size - 1) / 2
+    : 0;
+  const centerDistance = mode === "square" || mode === "torus"
+    ? Math.hypot(a - center, b - center)
+    : Math.max(Math.abs(a), Math.abs(b), Math.abs(-a - b));
+  const centerBonus = Math.max(0, size / 2 - centerDistance);
+
+  const material = summary.whiteStones - summary.blackStones;
+  const libertyBalance = (summary.whiteLiberties - summary.blackLiberties) / Math.max(1, points.length);
+  const rescuedWhiteStones = Math.max(0, before.weakWhiteStones - summary.weakWhiteStones);
+  const endangeredWhiteStones = summary.weakWhiteStones;
+  const netCaptureSwing = move.capturedCount - blackReply.capturedCount;
+  const rawScore =
+    material * 1.8
+    + move.capturedCount * 18 * strength.depthBonus
+    + netCaptureSwing * 34 * strength.depthBonus
+    + rescuedWhiteStones * 26 * strength.depthBonus
+    + move.liberties * 2.4 * strength.depthBonus
+    + friendlyNeighbors * 3.2 * strength.depthBonus
+    + enemyNeighbors * 1.1
+    + summary.weakBlackStones * 4.2 * strength.depthBonus
+    - endangeredWhiteStones * 18 * strength.depthBonus
+    - blackReply.capturedCount * 55 * strength.depthBonus
+    - (move.liberties === 1 ? 78 : move.liberties === 2 ? 24 : 0) * strength.depthBonus
+    - selfEyePenalty * strength.depthBonus
+    + centerBonus * 0.45
+    + libertyBalance * 8;
+
+  const winRate = 1 / (1 + Math.exp(-rawScore / 16));
+  return {
+    ...move,
+    blackReplyCapture: blackReply.capturedCount,
+    rescuedWhiteStones,
+    endangeredWhiteStones,
+    rawScore,
+    winRate: Math.round(winRate * 100),
+  };
+}
+
+function estimatePositionWhiteWinRate(source = board, captureState = captures) {
+  const summary = summarizePosition(source);
+  const material = summary.whiteStones - summary.blackStones + (captureState[WHITE] - captureState[BLACK]);
+  const libertyBalance = (summary.whiteLiberties - summary.blackLiberties) / Math.max(1, points.length);
+  const weakGroupPressure = summary.weakBlackGroups * 1.8;
+  const rawScore =
+    material * 1.7
+    + libertyBalance * 10
+    + weakGroupPressure
+    + KOMI * 0.22;
+  return Math.round((1 / (1 + Math.exp(-rawScore / 16))) * 100);
+}
+
+function getPendingWinratePreview() {
+  if (!pendingMoveKey || board[pendingMoveKey] !== EMPTY) return null;
+  if (deadStoneMode || ownershipMode || gameOver) return null;
+  if (playMode === "ai" && turn === WHITE) return null;
+  return simulateMove(board, pendingMoveKey, turn, true);
+}
+
+function findAiMove() {
+  const legalMoves = points
+    .map((point) => previewMove(point.key, WHITE))
+    .filter(Boolean);
+  if (!legalMoves.length) return null;
+
+  const ratedMoves = legalMoves.map(estimateAiMove);
+  ratedMoves.sort((left, right) => right.winRate - left.winRate || right.rawScore - left.rawScore);
+  const strength = AI_STRENGTHS[aiStrength];
+  const hasWhiteDanger = summarizePosition(board).weakWhiteStones > 0;
+  const rescueMoves = ratedMoves.filter((move) => move.rescuedWhiteStones > 0 && move.blackReplyCapture <= move.capturedCount + 1);
+  const saferMoves = ratedMoves.filter((move) => move.blackReplyCapture <= Math.max(1, move.capturedCount));
+  let movePool = ratedMoves;
+  if ((aiStrength === "10k" || aiStrength === "1d") && hasWhiteDanger && rescueMoves.length) {
+    movePool = rescueMoves;
+  } else if ((aiStrength === "10k" || aiStrength === "1d") && saferMoves.length) {
+    movePool = saferMoves;
+  }
+  const candidates = movePool.slice(0, Math.min(strength.candidateCount, movePool.length));
+  if (strength.randomness === 0) return candidates[0];
+
+  const noisyCandidates = candidates
+    .map((move) => ({
+      move,
+      score: move.rawScore + (Math.random() - 0.5) * strength.randomness,
+    }))
+    .sort((left, right) => right.score - left.score);
+  return noisyCandidates[0].move;
+}
+
+function scheduleAiMove() {
+  if (playMode !== "ai" || aiThinking || gameOver || turn !== WHITE || deadStoneMode || ownershipMode) return;
+  aiThinking = true;
+  setStatus("AI 思考中...");
+  window.setTimeout(() => {
+    aiThinking = false;
+    if (playMode !== "ai" || gameOver || turn !== WHITE) return;
+    const aiMove = findAiMove();
+    if (aiMove) {
+      const label = labelOfKey(aiMove.key);
+      tryPlay(aiMove.key, true);
+      setStatus(`AI 下在 ${label}，估計勝率 ${aiMove.winRate}%。輪到黑棋。`);
+    } else {
+      aiPass();
+    }
+  }, 360);
+}
+
+function aiPass() {
+  if (playMode !== "ai" || turn !== WHITE || gameOver) return;
+  pushHistory();
+  log.push("AI 白棋 Pass");
+  passCount += 1;
+  if (passCount >= 2) {
+    gameOver = true;
+    scoreState = calculateAreaScore();
+    scoreVisible = true;
+    setStatus("雙方 Pass，可看數子結果，也可以按數子判定後繼續下。");
+  } else {
+    turn = BLACK;
+    setStatus("AI Pass，輪到黑棋。");
+  }
+  render();
+}
+
+function tryPlay(key, fromAi = false) {
+  clearPendingMove();
   if (ownershipMode) return cycleOwnership(key);
   if (deadStoneMode) return removeDeadGroup(key);
+
+  if (playMode === "ai" && turn === WHITE && !fromAi) {
+    setStatus("AI 正在思考，請等白棋落子。");
+    return;
+  }
 
   if (gameOver) {
     setStatus("棋局已結束。可以新棋局，或用校正歸屬檢查終局。");
@@ -213,6 +834,7 @@ function tryPlay(key) {
 
   const snapshotKey = boardKey();
   const next = cloneCells(board);
+  const nextMoveNumbers = cloneCells(moveNumbers);
   next[key] = turn;
 
   let capturedCount = 0;
@@ -227,6 +849,7 @@ function tryPlay(key) {
       capturedCount += group.stones.length;
       group.stones.forEach((stoneKey) => {
         next[stoneKey] = EMPTY;
+        delete nextMoveNumbers[stoneKey];
       });
     }
   }
@@ -243,14 +866,20 @@ function tryPlay(key) {
 
   pushHistory();
   board = next;
+  moveCounter += 1;
+  nextMoveNumbers[key] = moveCounter;
+  moveNumbers = nextMoveNumbers;
+  lastMoveKey = key;
   captures[turn] += capturedCount;
   log.push(`${colorName(turn)} ${labelOfKey(key)}${capturedCount ? `，提 ${capturedCount} 子` : ""}`);
   previousBoardKey = snapshotKey;
   turn = enemy;
   passCount = 0;
   scoreState = null;
+  scoreVisible = false;
   setStatus(capturedCount ? `提掉 ${capturedCount} 子，輪到 ${colorName(turn)}。` : `輪到 ${colorName(turn)}。`);
   render();
+  scheduleAiMove();
 }
 
 function removeDeadGroup(key) {
@@ -264,16 +893,23 @@ function removeDeadGroup(key) {
   group.stones.forEach((stoneKey) => {
     board[stoneKey] = EMPTY;
     deadMap[stoneKey] = EMPTY;
+    delete moveNumbers[stoneKey];
   });
   log.push(`終局提死子：移除 ${colorName(color)} ${group.stones.length} 子`);
   scoreState = calculateAreaScore();
+  scoreVisible = true;
   setStatus(`已移除 ${colorName(color)} ${group.stones.length} 子，數子結果已更新。`);
   render();
 }
 
 function passTurn() {
+  clearPendingMove();
   if (deadStoneMode || ownershipMode) {
     setStatus("請先離開校正或提死子模式，再 Pass。");
+    return;
+  }
+  if (playMode === "ai" && turn === WHITE) {
+    setStatus("AI 正在思考，請等白棋行動。");
     return;
   }
   if (gameOver) return;
@@ -283,21 +919,27 @@ function passTurn() {
   if (passCount >= 2) {
     gameOver = true;
     scoreState = calculateAreaScore();
+    scoreVisible = true;
     setStatus("雙方連續 Pass。可提死子、校正歸屬或數子判定。");
   } else {
     turn = opponent(turn);
     setStatus(`${colorName(opponent(turn))} Pass，輪到 ${colorName(turn)}。`);
   }
   render();
+  scheduleAiMove();
 }
 
 function undo() {
+  clearPendingMove();
   const state = history.pop();
   if (!state) {
     setStatus("目前沒有可以悔的棋。");
     return;
   }
   restore(state);
+  if (playMode === "ai" && turn === WHITE && history.length) {
+    restore(history.pop());
+  }
   setStatus(`已悔棋，輪到 ${gameOver ? "終局處理" : colorName(turn)}。`);
 }
 
@@ -437,26 +1079,44 @@ function ownerName(owner) {
 }
 
 function showScore() {
+  if (scoreState && scoreVisible) {
+    scoreVisible = false;
+    deadStoneMode = false;
+    ownershipMode = false;
+    setStatus("已隱藏黑地、白地與中立點標記；數子結果仍保留。");
+    render();
+    return;
+  }
   scoreState = calculateAreaScore();
-  gameOver = true;
+  scoreVisible = true;
+  gameOver = false;
   deadStoneMode = false;
   ownershipMode = false;
+  saveFinishedGame();
   setStatus("已用數子法判定，棋盤上的方塊就是每一個被計入的空點。");
   render();
 }
 
 function resetGame(nextMode = mode, nextSize = size) {
+  aiThinking = false;
+  clearPendingMove();
+  hideConfirmDialog();
   setupBoard(nextMode, nextSize);
   turn = BLACK;
   captures = { [BLACK]: 0, [WHITE]: 0 };
   history = [];
   log = [];
+  moveNumbers = {};
+  moveCounter = 0;
+  lastMoveKey = null;
+  currentFinishedGameId = null;
   previousBoardKey = null;
   passCount = 0;
   gameOver = false;
   deadStoneMode = false;
   ownershipMode = false;
   scoreState = null;
+  scoreVisible = false;
   setStatus("黑棋先下");
   render();
 }
@@ -471,6 +1131,10 @@ function render() {
   renderHud();
   renderScore();
   renderLog();
+  renderMoveNumberToggle();
+  renderWinrate();
+  renderAiStrength();
+  renderGameHistory();
 }
 
 function renderSizeButtons() {
@@ -485,7 +1149,10 @@ function renderSizeButtons() {
     button.textContent = option.label;
     button.dataset.size = option.value;
     button.className = option.value === size ? "active" : "";
-    button.addEventListener("click", () => resetGame(mode, option.value));
+    button.addEventListener("click", () => {
+      clearPendingMove();
+      resetGame(mode, option.value);
+    });
     sizeButtons.append(button);
   }
 }
@@ -607,9 +1274,9 @@ function drawBoard() {
     drawHexLabels();
   }
 
-  if (scoreState) drawTerritoryMarks();
+  if (scoreState && scoreVisible) drawTerritoryMarks();
   drawStones();
-  if (scoreState) drawDeadStoneMarks();
+  if (scoreState && scoreVisible) drawDeadStoneMarks();
 }
 
 function drawSquareGrid() {
@@ -843,11 +1510,48 @@ function drawStones() {
     const color = board[point.key];
     if (color === EMPTY) continue;
     const { x, y } = pointToPixel(point);
-    drawStone(x, y, layout.stoneRadius, color, Boolean(deadMap[point.key]));
+    const moveNumber = moveNumbers[point.key];
+    drawStone(
+      x,
+      y,
+      layout.stoneRadius,
+      color,
+      Boolean(deadMap[point.key]),
+      shouldShowMoveNumber(moveNumber) ? moveNumber : null,
+      point.key === lastMoveKey
+    );
   }
+  drawPendingMove();
 }
 
-function drawStone(cx, cy, radius, color, isDead = false) {
+function shouldShowMoveNumber(moveNumber) {
+  if (!moveNumber) return false;
+  return showAllMoveNumbers || moveNumber > moveCounter - 2;
+}
+
+function drawPendingMove() {
+  if (!pendingMoveKey || board[pendingMoveKey] !== EMPTY) return;
+  const point = points.find((item) => item.key === pendingMoveKey);
+  if (!point) return;
+  const { x, y } = pointToPixel(point);
+  ctx.save();
+  ctx.globalAlpha = 0.58;
+  const gradient = ctx.createRadialGradient(x - layout.stoneRadius * 0.3, y - layout.stoneRadius * 0.35, layout.stoneRadius * 0.12, x, y, layout.stoneRadius);
+  gradient.addColorStop(0, "#ffffff");
+  gradient.addColorStop(0.55, "#9da3aa");
+  gradient.addColorStop(1, "#555d66");
+  ctx.beginPath();
+  ctx.arc(x, y, layout.stoneRadius, 0, Math.PI * 2);
+  ctx.fillStyle = gradient;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = "#2d6f6d";
+  ctx.lineWidth = Math.max(2, layout.stoneRadius * 0.13);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawStone(cx, cy, radius, color, isDead = false, moveNumber = null, isLastMove = false) {
   ctx.save();
   if (isDead) ctx.globalAlpha = 0.38;
   const gradient = ctx.createRadialGradient(cx - radius * 0.35, cy - radius * 0.4, radius * 0.12, cx, cy, radius);
@@ -867,6 +1571,22 @@ function drawStone(cx, cy, radius, color, isDead = false) {
   ctx.strokeStyle = color === BLACK ? "rgba(0,0,0,0.45)" : "rgba(80,90,105,0.45)";
   ctx.lineWidth = Math.max(1, radius * 0.06);
   ctx.stroke();
+
+  if (moveNumber) {
+    ctx.fillStyle = color === BLACK ? "#f8fafc" : "#20242a";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = `800 ${moveNumber >= 100 ? radius * 0.62 : radius * 0.78}px Segoe UI, sans-serif`;
+    ctx.fillText(String(moveNumber), cx, cy + radius * 0.03);
+  }
+
+  if (isLastMove) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius * 0.58, 0, Math.PI * 2);
+    ctx.strokeStyle = color === BLACK ? "#f5d76e" : "#2d6f6d";
+    ctx.lineWidth = Math.max(2, radius * 0.12);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -907,6 +1627,10 @@ function renderHud() {
 }
 
 function renderScore() {
+  if (scoreBtn) {
+    scoreBtn.setAttribute("aria-pressed", String(scoreVisible));
+    scoreBtn.textContent = scoreState ? (scoreVisible ? "隱藏地盤" : "顯示地盤") : "數子判定";
+  }
   if (!scoreState) {
     blackAreaEl.textContent = "-";
     whiteAreaEl.textContent = "-";
@@ -972,6 +1696,45 @@ function renderLog() {
   }
 }
 
+function renderMoveNumberToggle() {
+  if (!moveNumberToggle) return;
+  moveNumberToggle.setAttribute("aria-pressed", String(showAllMoveNumbers));
+  moveNumberToggle.textContent = showAllMoveNumbers ? "顯示全部手數" : "只顯示最近兩手";
+}
+
+function renderWinrate() {
+  const preview = getPendingWinratePreview();
+  const whiteRate = estimatePositionWhiteWinRate(board, captures);
+  const blackRate = 100 - whiteRate;
+  blackWinrateText.textContent = `黑 ${blackRate}%`;
+  whiteWinrateText.textContent = `白 ${whiteRate}%`;
+  blackWinrateBar.style.width = `${blackRate}%`;
+
+  if (!winratePreviewBar) return;
+  if (!preview) {
+    winratePreviewBar.classList.remove("is-visible");
+    winratePreviewBar.style.left = `${blackRate}%`;
+    winratePreviewBar.style.width = "0";
+    return;
+  }
+
+  const previewCaptures = { ...captures, [turn]: captures[turn] + preview.capturedCount };
+  const previewWhiteRate = estimatePositionWhiteWinRate(preview.next, previewCaptures);
+  const previewBlackRate = 100 - previewWhiteRate;
+  const previewStart = Math.min(blackRate, previewBlackRate);
+  const previewWidth = Math.max(2, Math.abs(previewBlackRate - blackRate));
+  winratePreviewBar.style.left = `${previewStart}%`;
+  winratePreviewBar.style.width = `${previewWidth}%`;
+  winratePreviewBar.classList.add("is-visible");
+}
+
+function renderAiStrength() {
+  aiStrengthPanel.classList.toggle("is-hidden", playMode !== "ai");
+  aiStrengthPanel.querySelectorAll("[data-ai-strength]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.aiStrength === aiStrength);
+  });
+}
+
 function labelOfKey(key) {
   const { a, b } = parseKey(key);
   if (mode === "square") {
@@ -1011,7 +1774,32 @@ canvas.addEventListener("click", (event) => {
   }
   if (!layout) return;
   const key = keyFromClick(event);
-  if (key) tryPlay(key);
+  if (!key) {
+    clearPendingMove();
+    render();
+    return;
+  }
+  if (ownershipMode || deadStoneMode) {
+    clearPendingMove();
+    tryPlay(key);
+    return;
+  }
+  if (gameOver || (playMode === "ai" && turn === WHITE)) {
+    tryPlay(key);
+    return;
+  }
+  if (board[key] !== EMPTY) {
+    clearPendingMove();
+    tryPlay(key);
+    render();
+    return;
+  }
+  if (pendingMoveKey === key) {
+    clearPendingMove();
+    tryPlay(key);
+    return;
+  }
+  setPendingMove(key);
 });
 
 canvas.addEventListener("pointerdown", (event) => {
@@ -1054,30 +1842,131 @@ canvas.addEventListener("pointercancel", (event) => {
 
 document.querySelectorAll("[data-mode]").forEach((button) => {
   button.addEventListener("click", () => {
+    clearPendingMove();
     document.querySelectorAll("[data-mode]").forEach((item) => item.classList.remove("active"));
     button.classList.add("active");
     resetGame(button.dataset.mode, button.dataset.mode === "hex" ? 15 : 19);
   });
 });
 
+function showConfirmDialog({ title, message, confirmText, cancelText = "留下", hideCancel = false, onConfirm }) {
+  pendingConfirmAction = onConfirm;
+  confirmDialogTitle.textContent = title;
+  confirmDialogMessage.textContent = message;
+  cancelDialogBtn.textContent = cancelText;
+  confirmDialogBtn.textContent = confirmText;
+  cancelDialogBtn.classList.toggle("is-hidden", hideCancel);
+  confirmDialog.classList.remove("is-hidden");
+  confirmDialogBtn.focus();
+}
+
+function hideConfirmDialog() {
+  pendingConfirmAction = null;
+  confirmDialog.classList.add("is-hidden");
+}
+
+function showMainMenu() {
+  aiThinking = false;
+  hideConfirmDialog();
+  gameShell.classList.add("is-hidden");
+  startScreen.classList.remove("is-hidden");
+}
+
+function requestMainMenu() {
+  if (hasStartedGame()) {
+    showConfirmDialog({
+      title: "棋局已開始",
+      message: "棋局已開始，確定離開嗎？",
+      confirmText: "離開",
+      onConfirm: showMainMenu,
+    });
+    return;
+  }
+  showMainMenu();
+}
+
+function requestNewGame() {
+  if (hasStartedGame()) {
+    showConfirmDialog({
+      title: "棋局已開始",
+      message: "棋局已開始，確定重開嗎？",
+      confirmText: "重開",
+      onConfirm: () => resetGame(mode, size),
+    });
+    return;
+  }
+  resetGame(mode, size);
+}
+
+function showOnlineModeInfo(withAiHint) {
+  showConfirmDialog({
+    title: withAiHint ? "AI 提示連線" : "連線對弈",
+    message: withAiHint
+      ? "這個模式需要先做連線房間，之後再把 AI 建議落點疊在雙方棋盤上。下一步要先決定：AI 提示只給自己看，還是雙方都能看。"
+      : "連線對弈需要一個同步棋盤的地方，例如雲端資料庫或小型伺服器。選好方式後，就能做建立房間、輸入房間碼、雙方同步落子的流程。",
+    confirmText: "知道了",
+    hideCancel: true,
+    onConfirm: hideConfirmDialog,
+  });
+}
+
 document.querySelector("#passBtn").addEventListener("click", passTurn);
 document.querySelector("#undoBtn").addEventListener("click", undo);
 document.querySelector("#scoreBtn").addEventListener("click", showScore);
-document.querySelector("#newGameBtn").addEventListener("click", () => resetGame(mode, size));
+document.querySelector("#newGameBtn").addEventListener("click", requestNewGame);
+traditionalModeBtn.addEventListener("click", () => startGame("traditional"));
+aiModeBtn.addEventListener("click", () => startGame("ai"));
+onlineModeBtn.addEventListener("click", () => showOnlineModeInfo(false));
+onlineAiHintModeBtn.addEventListener("click", () => showOnlineModeInfo(true));
+backMenuBtn.addEventListener("click", requestMainMenu);
+aiStrengthPanel.querySelectorAll("[data-ai-strength]").forEach((button) => {
+  button.addEventListener("click", () => {
+    aiStrength = button.dataset.aiStrength;
+    setStatus(`AI 強度已切換為 ${AI_STRENGTHS[aiStrength].label}。`);
+    render();
+    scheduleAiMove();
+  });
+});
+cancelDialogBtn.addEventListener("click", hideConfirmDialog);
+confirmDialogBtn.addEventListener("click", () => {
+  const action = pendingConfirmAction;
+  hideConfirmDialog();
+  if (action) action();
+});
+confirmDialog.addEventListener("click", (event) => {
+  if (event.target === confirmDialog) hideConfirmDialog();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") hideConfirmDialog();
+});
+moveNumberToggle.addEventListener("click", () => {
+  showAllMoveNumbers = !showAllMoveNumbers;
+  render();
+});
 deadModeBtn.addEventListener("click", () => {
+  clearPendingMove();
   deadStoneMode = !deadStoneMode;
   ownershipMode = false;
   scoreState = calculateAreaScore();
+  scoreVisible = true;
   setStatus(deadStoneMode ? "提死子模式：點一串死棋就會整串移除。" : "已離開提死子模式。");
   render();
 });
 ownershipModeBtn.addEventListener("click", () => {
+  clearPendingMove();
   if (!scoreState) scoreState = calculateAreaScore();
   ownershipMode = !ownershipMode;
+  scoreVisible = true;
   deadStoneMode = false;
   setStatus(ownershipMode ? "校正歸屬模式：點空點切換歸屬；點棋子整串標死或恢復。" : "已離開校正歸屬模式。");
   render();
 });
 window.addEventListener("resize", drawBoard);
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
+}
 
 resetGame("square", 19);

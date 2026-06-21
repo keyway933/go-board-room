@@ -3,16 +3,58 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#d39d48">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="棋盤小棋室">
   <title>棋盤小棋室</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <main class="app-shell">
+  <section class="start-screen" id="startScreen">
+    <div class="start-panel">
+      <p class="start-kicker">Go Board Room</p>
+      <h1>圍棋小棋室</h1>
+      <p class="start-copy">選擇玩法後進入棋盤。</p>
+      <div class="mode-choice-grid">
+        <button id="traditionalModeBtn" class="mode-choice">
+          <strong>傳統下棋</strong>
+          <span>雙人輪流落子、數子判定、手數標記。</span>
+        </button>
+        <button id="aiModeBtn" class="mode-choice">
+          <strong>AI 對弈</strong>
+          <span>你執黑，AI 執白自動回應。</span>
+        </button>
+        <button id="onlineModeBtn" class="mode-choice">
+          <strong>連線對弈</strong>
+          <span>建立房間，讓另一位玩家用房間碼加入。</span>
+        </button>
+        <button id="onlineAiHintModeBtn" class="mode-choice">
+          <strong>AI 提示連線</strong>
+          <span>雙方連線下棋，AI 只提示建議落點。</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <main class="app-shell is-hidden" id="gameShell">
     <section class="board-panel" aria-label="棋盤">
       <div class="top-bar">
         <div>
           <h1 id="appTitle">圍棋小棋室</h1>
-          <p id="statusText">黑棋先下</p>
+        </div>
+        <div class="winrate-panel" aria-label="勝率">
+          <div class="winrate-head">
+            <span id="blackWinrateText">黑 50%</span>
+            <span id="whiteWinrateText">白 50%</span>
+          </div>
+          <div class="winrate-bar" aria-hidden="true">
+            <div class="winrate-black" id="blackWinrateBar"></div>
+            <div class="winrate-preview" id="winratePreviewBar"></div>
+            <div class="winrate-white"></div>
+          </div>
         </div>
         <div class="turn-card" id="turnCard">
           <span class="stone black" aria-hidden="true"></span>
@@ -23,6 +65,15 @@
       <div class="board-wrap">
         <canvas id="goBoard" width="900" height="900" aria-label="可點擊的棋盤"></canvas>
       </div>
+      <p id="statusText" class="board-status">黑棋先下</p>
+      <section class="history-strip" aria-label="歷史棋局">
+        <div class="history-heading">
+          <h2>歷史棋局</h2>
+          <p id="gameHistoryEmpty">按「數子判定」後，棋局會保存到這裡。</p>
+        </div>
+        <div class="history-grid" id="gameHistoryList"></div>
+        <div class="history-actions" id="gameHistoryActions"></div>
+      </section>
     </section>
 
     <aside class="side-panel">
@@ -34,6 +85,16 @@
         </div>
 
         <div class="segmented" id="sizeButtons" role="group" aria-label="棋盤大小"></div>
+
+        <div class="ai-strength-panel is-hidden" id="aiStrengthPanel">
+          <h3>AI 強度</h3>
+          <div class="ai-strength-grid" role="group" aria-label="AI 強度">
+            <button data-ai-strength="30k">30級</button>
+            <button data-ai-strength="20k">20級</button>
+            <button data-ai-strength="10k">10級</button>
+            <button data-ai-strength="1d">1段</button>
+          </div>
+        </div>
 
         <div class="score-grid">
           <div>
@@ -52,6 +113,8 @@
           <button id="deadModeBtn" aria-pressed="false">提死子</button>
           <button id="scoreBtn">數子判定</button>
           <button id="ownershipModeBtn" aria-pressed="false">校正歸屬</button>
+          <button id="moveNumberToggle" class="wide" aria-pressed="false">只顯示最近兩手</button>
+          <button id="backMenuBtn" class="wide">回主畫面</button>
           <button id="newGameBtn" class="wide">新棋局</button>
         </div>
       </section>
@@ -112,6 +175,17 @@
       </section>
     </aside>
   </main>
+
+  <div class="app-dialog-backdrop is-hidden" id="confirmDialog" role="presentation">
+    <section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="confirmDialogTitle">
+      <h2 id="confirmDialogTitle">棋局已開始</h2>
+      <p id="confirmDialogMessage">棋局已開始，確定離開嗎？</p>
+      <div class="dialog-actions">
+        <button id="cancelDialogBtn">留下</button>
+        <button id="confirmDialogBtn" class="primary">離開</button>
+      </div>
+    </section>
+  </div>
 
   <script src="app.js"></script>
 </body>

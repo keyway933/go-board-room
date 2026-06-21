@@ -1,0 +1,19 @@
+{
+  "name": "棋盤小棋室",
+  "short_name": "棋盤",
+  "description": "可以在瀏覽器下棋的棋盤工具，支援標準圍棋、六氣棋盤與甜甜圈棋盤。",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f2ea",
+  "theme_color": "#d39d48",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
