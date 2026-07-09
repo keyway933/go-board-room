@@ -25,7 +25,7 @@
         </button>
         <button id="aiModeBtn" class="mode-choice">
           <strong>AI 對弈</strong>
-          <span>你執黑，AI 執白自動回應。</span>
+          <span>你執黑，V4-SGF 執白離線回應。</span>
         </button>
         <button id="onlineModeBtn" class="mode-choice">
           <strong>連線對弈</strong>
@@ -87,12 +87,10 @@
         <div class="segmented" id="sizeButtons" role="group" aria-label="棋盤大小"></div>
 
         <div class="ai-strength-panel is-hidden" id="aiStrengthPanel">
-          <h3>AI 強度</h3>
-          <div class="ai-strength-grid" role="group" aria-label="AI 強度">
-            <button data-ai-strength="30k">30級</button>
-            <button data-ai-strength="20k">20級</button>
-            <button data-ai-strength="10k">10級</button>
-            <button data-ai-strength="1d">1段</button>
+          <h3>AI 模型</h3>
+          <div class="ai-model-card" aria-live="polite">
+            <strong>V4-SGF</strong>
+            <span id="aiModelStatus">尚未載入</span>
           </div>
         </div>
 
@@ -187,6 +185,7 @@
     </section>
   </div>
 
+  <script src="vendor/onnxruntime/ort.wasm.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

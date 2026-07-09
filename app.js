@@ -29,6 +29,7 @@ const scoreBtn = document.querySelector("#scoreBtn");
 const ownershipModeBtn = document.querySelector("#ownershipModeBtn");
 const moveNumberToggle = document.querySelector("#moveNumberToggle");
 const aiStrengthPanel = document.querySelector("#aiStrengthPanel");
+const aiModelStatus = document.querySelector("#aiModelStatus");
 const startScreen = document.querySelector("#startScreen");
 const gameShell = document.querySelector("#gameShell");
 const traditionalModeBtn = document.querySelector("#traditionalModeBtn");
@@ -52,6 +53,11 @@ const GAME_HISTORY_LIMIT = 60;
 const GAME_HISTORY_COLLAPSED_COUNT = 6;
 const LETTERS = "ABCDEFGHJKLMNOPQRST";
 const BOPOMOFO = ["ㄅ", "ㄆ", "ㄇ", "ㄈ", "ㄉ", "ㄊ", "ㄋ", "ㄌ", "ㄍ", "ㄎ", "ㄏ", "ㄐ", "ㄑ", "ㄒ", "ㄓ", "ㄔ", "ㄕ", "ㄖ", "ㄗ"];
+const V4_MODEL_NAME = "V4-SGF";
+const V4_MODEL_URL = "./models/v4-sgf-web.onnx";
+const V4_RUNTIME_PATH = "./vendor/onnxruntime/";
+const V4_MODEL_TIMEOUT_MS = 30000;
+const V4_INFERENCE_TIMEOUT_MS = 8000;
 
 const DIRS = {
   square: [[1, 0], [-1, 0], [0, 1], [0, -1]],
@@ -90,6 +96,12 @@ let pendingConfirmAction = null;
 let aiStrength = "20k";
 let currentFinishedGameId = null;
 let isGameHistoryExpanded = false;
+let v4SessionPromise = null;
+let v4ModelState = "idle";
+let v4ModelMessage = "尚未載入";
+let v4WhiteWinRate = null;
+let nativeV4RequestCounter = 0;
+const nativeV4Requests = new Map();
 
 const AI_STRENGTHS = {
   "30k": { label: "30級", candidateCount: 14, randomness: 18, depthBonus: 0.55 },
@@ -97,6 +109,209 @@ const AI_STRENGTHS = {
   "10k": { label: "10級", candidateCount: 2, randomness: 0.5, depthBonus: 1.45 },
   "1d": { label: "1段", candidateCount: 1, randomness: 0, depthBonus: 2 },
 };
+
+function setV4ModelStatus(state, message) {
+  v4ModelState = state;
+  v4ModelMessage = message;
+  if (aiModelStatus) aiModelStatus.textContent = message;
+}
+
+function withTimeout(promise, timeoutMs, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = window.setTimeout(() => reject(new Error(`${label}逾時`)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => window.clearTimeout(timer));
+}
+
+function hasNativeV4Bridge() {
+  return typeof window.GoAiBridge !== "undefined";
+}
+
+window.__setNativeV4State = (ready, message) => {
+  setV4ModelStatus(ready ? "ready" : "fallback", message || (ready ? "已就緒 · Android 離線推論" : "Android 模型載入失敗"));
+};
+
+window.__resolveNativeV4 = (requestId, payload) => {
+  const pending = nativeV4Requests.get(requestId);
+  if (!pending) return;
+  nativeV4Requests.delete(requestId);
+  pending.resolve(payload);
+};
+
+window.__rejectNativeV4 = (requestId, message) => {
+  const pending = nativeV4Requests.get(requestId);
+  if (!pending) return;
+  nativeV4Requests.delete(requestId);
+  pending.reject(new Error(message || "V4-SGF Android 推論失敗"));
+};
+
+function waitForNativeV4() {
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    const check = () => {
+      try {
+        if (window.GoAiBridge.isReady()) {
+          setV4ModelStatus("ready", "已就緒 · Android 離線推論");
+          resolve("native");
+          return;
+        }
+      } catch (error) {
+        reject(error);
+        return;
+      }
+      if (Date.now() - startedAt >= V4_MODEL_TIMEOUT_MS) {
+        reject(new Error("V4-SGF Android 模型載入逾時"));
+        return;
+      }
+      window.setTimeout(check, 100);
+    };
+    check();
+  });
+}
+
+function runNativeV4Inference(features) {
+  return new Promise((resolve, reject) => {
+    const requestId = `v4-${Date.now()}-${++nativeV4RequestCounter}`;
+    nativeV4Requests.set(requestId, { resolve, reject });
+    try {
+      window.GoAiBridge.infer(requestId, JSON.stringify(Array.from(features)));
+    } catch (error) {
+      nativeV4Requests.delete(requestId);
+      reject(error);
+    }
+  });
+}
+function isV4PositionSupported() {
+  return mode === "square" && size === 19;
+}
+
+function prepareV4Model() {
+  if (v4SessionPromise) return v4SessionPromise;
+  if (hasNativeV4Bridge()) {
+    setV4ModelStatus("loading", "V4-SGF Android 模型載入中...");
+    v4SessionPromise = waitForNativeV4().catch((error) => {
+      v4SessionPromise = null;
+      setV4ModelStatus("fallback", "Android 模型載入失敗，改用備援 AI");
+      throw error;
+    });
+    return v4SessionPromise;
+  }
+  if (!window.ort) {
+    setV4ModelStatus("fallback", "Runtime 載入失敗，使用備援 AI");
+    return Promise.reject(new Error("ONNX Runtime Web unavailable"));
+  }
+
+  setV4ModelStatus("loading", "模型載入中...");
+  window.ort.env.wasm.wasmPaths = new URL(V4_RUNTIME_PATH, window.location.href).href;
+  window.ort.env.wasm.numThreads = 1;
+  window.ort.env.wasm.proxy = false;
+  v4SessionPromise = window.ort.InferenceSession.create(V4_MODEL_URL, {
+    executionProviders: ["wasm"],
+    graphOptimizationLevel: "all",
+  }).then((session) => {
+    setV4ModelStatus("ready", "已就緒 · 離線推論");
+    return session;
+  }).catch((error) => {
+    console.error("V4-SGF model load failed", error);
+    setV4ModelStatus("fallback", "載入失敗，使用備援 AI");
+    throw error;
+  });
+  return v4SessionPromise;
+}
+
+function encodeV4Features(source, perspective) {
+  const area = 19 * 19;
+  const features = new Float32Array(5 * area);
+  const enemy = opponent(perspective);
+  const toPlayValue = turn === perspective ? 1 : 0;
+
+  for (let y = 0; y < 19; y++) {
+    for (let x = 0; x < 19; x++) {
+      const index = y * 19 + x;
+      const cell = source[keyOf(x, y)];
+      if (cell === perspective) features[index] = 1;
+      if (cell === enemy) features[area + index] = 1;
+      features[area * 2 + index] = toPlayValue;
+      features[area * 3 + index] = x / 18;
+      features[area * 4 + index] = y / 18;
+    }
+  }
+  return features;
+}
+
+async function runV4Inference(source, perspective) {
+  const features = encodeV4Features(source, perspective);
+  let policy;
+  let value;
+
+  if (hasNativeV4Bridge()) {
+    await withTimeout(prepareV4Model(), V4_MODEL_TIMEOUT_MS, "V4-SGF 模型載入");
+    const outputs = await withTimeout(
+      runNativeV4Inference(features),
+      V4_INFERENCE_TIMEOUT_MS,
+      "V4-SGF Android 推論"
+    );
+    policy = outputs.policy;
+    value = Number(outputs.value);
+  } else {
+    const session = await withTimeout(prepareV4Model(), V4_MODEL_TIMEOUT_MS, "V4-SGF 模型載入");
+    const tensor = new window.ort.Tensor("float32", features, [1, 5, 19, 19]);
+    const outputs = await withTimeout(
+      session.run({ features: tensor }),
+      V4_INFERENCE_TIMEOUT_MS,
+      "V4-SGF 推論"
+    );
+    policy = outputs.policy_logits?.data;
+    value = Number(outputs.value?.data?.[0]);
+  }
+
+  if (!policy || policy.length !== 361 || !Number.isFinite(value)) {
+    throw new Error("V4-SGF 輸出格式不正確");
+  }
+  const perspectiveWinRate = Math.max(0, Math.min(100, (value + 1) * 50));
+  return {
+    policy,
+    value,
+    whiteWinRate: perspective === WHITE ? perspectiveWinRate : 100 - perspectiveWinRate,
+  };
+}
+
+async function findV4Move() {
+  if (!isV4PositionSupported()) throw new Error("V4-SGF 只支援標準 19 路");
+  const legalMoves = points
+    .map((point) => previewMove(point.key, WHITE))
+    .filter(Boolean);
+  if (!legalMoves.length) return null;
+
+  const inference = await runV4Inference(board, WHITE);
+  v4WhiteWinRate = inference.whiteWinRate;
+  let bestMove = null;
+  let bestLogit = Number.NEGATIVE_INFINITY;
+  for (const move of legalMoves) {
+    const { a: x, b: y } = parseKey(move.key);
+    const logit = Number(inference.policy[y * 19 + x]);
+    if (logit > bestLogit) {
+      bestLogit = logit;
+      bestMove = move;
+    }
+  }
+  return bestMove ? { ...bestMove, winRate: Math.round(inference.whiteWinRate), engine: V4_MODEL_NAME } : null;
+}
+
+async function refreshV4WinRate() {
+  if (playMode !== "ai" || !isV4PositionSupported() || gameOver) return;
+  const snapshot = boardKey();
+  const perspective = turn;
+  try {
+    const inference = await runV4Inference(board, perspective);
+    if (snapshot !== boardKey() || perspective !== turn) return;
+    v4WhiteWinRate = inference.whiteWinRate;
+    renderWinrate();
+  } catch (error) {
+    console.warn("V4-SGF value refresh failed", error);
+  }
+}
 
 function colorName(color) {
   return color === BLACK ? "黑棋" : "白棋";
@@ -112,7 +327,17 @@ function startGame(nextPlayMode) {
   startScreen.classList.add("is-hidden");
   gameShell.classList.remove("is-hidden");
   resetGame("square", 19);
-  setStatus(playMode === "ai" ? "AI 對弈：你執黑先下。" : "傳統下棋：黑棋先下。");
+  if (playMode === "ai") {
+    setStatus("AI 對弈：你執黑先下，V4-SGF 載入中。");
+    prepareV4Model().then(() => {
+      if (playMode === "ai" && turn === BLACK && moveCounter === 0) {
+        setStatus("AI 對弈：你執黑先下，V4-SGF 已就緒。");
+      }
+      renderAiStrength();
+    }).catch(() => renderAiStrength());
+  } else {
+    setStatus("傳統下棋：黑棋先下。");
+  }
   render();
 }
 
@@ -780,19 +1005,37 @@ function findAiMove() {
 function scheduleAiMove() {
   if (playMode !== "ai" || aiThinking || gameOver || turn !== WHITE || deadStoneMode || ownershipMode) return;
   aiThinking = true;
-  setStatus("AI 思考中...");
-  window.setTimeout(() => {
+  const snapshot = boardKey();
+  setStatus(isV4PositionSupported() ? "V4-SGF 思考中..." : "備援 AI 思考中...");
+
+  window.setTimeout(async () => {
+    let aiMove = null;
+    let usedFallback = false;
+    try {
+      aiMove = isV4PositionSupported() ? await findV4Move() : findAiMove();
+    } catch (error) {
+      console.warn("V4-SGF inference failed; using fallback AI", error);
+      setV4ModelStatus("fallback", "推論失敗，使用備援 AI");
+      aiMove = findAiMove();
+      usedFallback = true;
+    }
+
+    if (playMode !== "ai" || gameOver || turn !== WHITE || snapshot !== boardKey()) {
+      aiThinking = false;
+      return;
+    }
     aiThinking = false;
-    if (playMode !== "ai" || gameOver || turn !== WHITE) return;
-    const aiMove = findAiMove();
     if (aiMove) {
       const label = labelOfKey(aiMove.key);
       tryPlay(aiMove.key, true);
-      setStatus(`AI 下在 ${label}，估計勝率 ${aiMove.winRate}%。輪到黑棋。`);
+      const engineLabel = usedFallback || aiMove.engine !== V4_MODEL_NAME ? "備援 AI" : V4_MODEL_NAME;
+      setStatus(`${engineLabel} 下在 ${label}。輪到黑棋。`);
+      refreshV4WinRate();
     } else {
       aiPass();
     }
-  }, 360);
+    renderAiStrength();
+  }, 180);
 }
 
 function aiPass() {
@@ -1117,6 +1360,7 @@ function resetGame(nextMode = mode, nextSize = size) {
   ownershipMode = false;
   scoreState = null;
   scoreVisible = false;
+  v4WhiteWinRate = null;
   setStatus("黑棋先下");
   render();
 }
@@ -1704,7 +1948,9 @@ function renderMoveNumberToggle() {
 
 function renderWinrate() {
   const preview = getPendingWinratePreview();
-  const whiteRate = estimatePositionWhiteWinRate(board, captures);
+  const heuristicWhiteRate = estimatePositionWhiteWinRate(board, captures);
+  const hasV4Rate = playMode === "ai" && Number.isFinite(v4WhiteWinRate);
+  const whiteRate = hasV4Rate ? Math.round(v4WhiteWinRate) : heuristicWhiteRate;
   const blackRate = 100 - whiteRate;
   blackWinrateText.textContent = `黑 ${blackRate}%`;
   whiteWinrateText.textContent = `白 ${whiteRate}%`;
@@ -1719,7 +1965,8 @@ function renderWinrate() {
   }
 
   const previewCaptures = { ...captures, [turn]: captures[turn] + preview.capturedCount };
-  const previewWhiteRate = estimatePositionWhiteWinRate(preview.next, previewCaptures);
+  const previewHeuristicWhiteRate = estimatePositionWhiteWinRate(preview.next, previewCaptures);
+  const previewWhiteRate = Math.max(0, Math.min(100, whiteRate + previewHeuristicWhiteRate - heuristicWhiteRate));
   const previewBlackRate = 100 - previewWhiteRate;
   const previewStart = Math.min(blackRate, previewBlackRate);
   const previewWidth = Math.max(2, Math.abs(previewBlackRate - blackRate));
@@ -1730,9 +1977,7 @@ function renderWinrate() {
 
 function renderAiStrength() {
   aiStrengthPanel.classList.toggle("is-hidden", playMode !== "ai");
-  aiStrengthPanel.querySelectorAll("[data-ai-strength]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.aiStrength === aiStrength);
-  });
+  if (aiModelStatus) aiModelStatus.textContent = v4ModelMessage;
 }
 
 function labelOfKey(key) {

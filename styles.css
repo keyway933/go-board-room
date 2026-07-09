@@ -266,7 +266,7 @@ h3 {
   background: var(--wood);
   border-radius: 8px;
   border: 2px solid var(--wood-dark);
-  touch-action: manipulation;
+  touch-action: pan-x pan-y pinch-zoom;
   cursor: crosshair;
 }
 
@@ -311,6 +311,27 @@ h3 {
 
 .ai-strength-panel h3 {
   color: var(--muted);
+}
+
+.ai-model-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(45, 111, 109, 0.22);
+  border-radius: 8px;
+  background: rgba(45, 111, 109, 0.08);
+}
+
+.ai-model-card strong {
+  color: var(--accent);
+}
+
+.ai-model-card span {
+  color: var(--muted);
+  font-size: 0.86rem;
+  text-align: right;
 }
 
 .ai-strength-grid {
@@ -732,14 +753,26 @@ h3 {
   }
 }
 
-@media (max-width: 880px) {
+@media (max-width: 1024px) {
   .mode-choice-grid {
     grid-template-columns: 1fr;
   }
 
   .app-shell {
-    grid-template-columns: 1fr;
-    padding: 10px;
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 8px;
+    gap: 10px;
+    overflow-x: hidden;
+  }
+
+  .app-shell > *,
+  .side-panel section {
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+    min-width: 0;
+    justify-self: stretch;
   }
 
   .board-panel,
@@ -752,12 +785,19 @@ h3 {
   }
 
   .board-panel {
-    padding: 10px;
+    width: 100%;
+    min-width: 0;
+    padding: 8px;
   }
 
   .top-bar {
     flex-wrap: wrap;
     align-items: flex-start;
+    gap: 10px;
+  }
+
+  h1 {
+    font-size: 1.45rem;
   }
 
   .winrate-panel {
@@ -767,7 +807,15 @@ h3 {
   }
 
   .board-wrap {
+    width: min(100%, calc(100vw - 36px));
     max-height: none;
+    margin: 0 auto;
+  }
+
+  #goBoard {
+    width: 100%;
+    height: auto;
+    max-width: calc(100vw - 36px);
   }
 
   .history-heading {

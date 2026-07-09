@@ -1,11 +1,15 @@
-const CACHE_NAME = "go-board-room-v2";
+const CACHE_NAME = "go-board-room-v3-v4-sgf";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
   "./manifest.webmanifest",
-  "./icon.svg"
+  "./icon.svg",
+  "./models/v4-sgf-web.onnx",
+  "./vendor/onnxruntime/ort.wasm.min.js",
+  "./vendor/onnxruntime/ort-wasm-simd-threaded.mjs",
+  "./vendor/onnxruntime/ort-wasm-simd-threaded.wasm"
 ];
 
 self.addEventListener("install", (event) => {
