@@ -359,7 +359,26 @@ h3 {
   text-align: right;
 }
 
-.ai-strength-grid {
+
+.ai-difficulty-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ai-difficulty-grid button {
+  min-height: 38px;
+  padding: 0 6px;
+  font-size: 0.92rem;
+}
+
+.ai-difficulty-note {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}.ai-strength-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 6px;

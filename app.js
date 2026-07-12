@@ -30,6 +30,7 @@ const ownershipModeBtn = document.querySelector("#ownershipModeBtn");
 const moveNumberToggle = document.querySelector("#moveNumberToggle");
 const aiStrengthPanel = document.querySelector("#aiStrengthPanel");
 const aiModelStatus = document.querySelector("#aiModelStatus");
+const aiDifficultyText = document.querySelector("#aiDifficultyText");
 const startScreen = document.querySelector("#startScreen");
 const gameShell = document.querySelector("#gameShell");
 const traditionalModeBtn = document.querySelector("#traditionalModeBtn");
@@ -96,7 +97,7 @@ let playMode = "traditional";
 let aiThinking = false;
 let pendingConfirmAction = null;
 let pendingCancelAction = null;
-let aiStrength = "20k";
+let aiStrength = "low";
 let currentFinishedGameId = null;
 let isGameHistoryExpanded = false;
 let v4SessionPromise = null;
@@ -118,10 +119,50 @@ let onlineState = {
 };
 
 const AI_STRENGTHS = {
-  "30k": { label: "30級", candidateCount: 14, randomness: 18, depthBonus: 0.55 },
-  "20k": { label: "20級", candidateCount: 7, randomness: 5, depthBonus: 1 },
-  "10k": { label: "10級", candidateCount: 2, randomness: 0.5, depthBonus: 1.45 },
-  "1d": { label: "1段", candidateCount: 1, randomness: 0, depthBonus: 2 },
+  low: {
+    label: "低",
+    note: "低：較適合新手，AI 會比較放鬆。",
+    candidateCount: 16,
+    randomness: 30,
+    depthBonus: 0.6,
+    protectWeak: false,
+    v4TopN: 70,
+    v4Temperature: 1.45,
+    v4BlunderRate: 0.22,
+  },
+  medium: {
+    label: "中",
+    note: "中：會認真下，但仍保留一些變化。",
+    candidateCount: 8,
+    randomness: 10,
+    depthBonus: 1,
+    protectWeak: false,
+    v4TopN: 24,
+    v4Temperature: 0.85,
+    v4BlunderRate: 0.08,
+  },
+  high: {
+    label: "高",
+    note: "高：大多選模型前幾推薦手。",
+    candidateCount: 3,
+    randomness: 2,
+    depthBonus: 1.45,
+    protectWeak: true,
+    v4TopN: 7,
+    v4Temperature: 0.42,
+    v4BlunderRate: 0.015,
+  },
+  max: {
+    label: "最高",
+    note: "最高：最接近 V4-SGF 原本判斷。",
+    candidateCount: 1,
+    randomness: 0,
+    depthBonus: 2,
+    protectWeak: true,
+    v4TopN: 1,
+    v4Temperature: 0,
+    v4BlunderRate: 0,
+  },
 };
 
 function setV4ModelStatus(state, message) {
@@ -291,6 +332,42 @@ async function runV4Inference(source, perspective) {
   };
 }
 
+function chooseWeightedMove(candidates, temperature) {
+  if (!candidates.length) return null;
+  if (!temperature || temperature <= 0) return candidates[0].move;
+  const best = candidates[0].logit;
+  const weights = candidates.map((item) => Math.exp((item.logit - best) / temperature));
+  const total = weights.reduce((sum, value) => sum + value, 0);
+  let pick = Math.random() * total;
+  for (let index = 0; index < candidates.length; index++) {
+    pick -= weights[index];
+    if (pick <= 0) return candidates[index].move;
+  }
+  return candidates[candidates.length - 1].move;
+}
+
+function selectV4MoveByDifficulty(legalMoves, policy) {
+  const strength = AI_STRENGTHS[aiStrength] || AI_STRENGTHS.low;
+  const ratedMoves = legalMoves
+    .map((move) => {
+      const { a: x, b: y } = parseKey(move.key);
+      return { move, logit: Number(policy[y * 19 + x]) };
+    })
+    .filter((item) => Number.isFinite(item.logit))
+    .sort((left, right) => right.logit - left.logit);
+
+  if (!ratedMoves.length) return null;
+  if (strength.v4BlunderRate && Math.random() < strength.v4BlunderRate) {
+    const start = Math.min(Math.floor(strength.v4TopN * 0.45), ratedMoves.length - 1);
+    const end = Math.min(ratedMoves.length, Math.max(start + 1, strength.v4TopN + 18));
+    const loosePool = ratedMoves.slice(start, end);
+    return loosePool[Math.floor(Math.random() * loosePool.length)].move;
+  }
+
+  const topN = Math.max(1, Math.min(strength.v4TopN, ratedMoves.length));
+  return chooseWeightedMove(ratedMoves.slice(0, topN), strength.v4Temperature);
+}
+
 async function findV4Move() {
   if (!isV4PositionSupported()) throw new Error("V4-SGF 只支援標準 19 路");
   const legalMoves = points
@@ -300,17 +377,8 @@ async function findV4Move() {
 
   const inference = await runV4Inference(board, WHITE);
   v4WhiteWinRate = inference.whiteWinRate;
-  let bestMove = null;
-  let bestLogit = Number.NEGATIVE_INFINITY;
-  for (const move of legalMoves) {
-    const { a: x, b: y } = parseKey(move.key);
-    const logit = Number(inference.policy[y * 19 + x]);
-    if (logit > bestLogit) {
-      bestLogit = logit;
-      bestMove = move;
-    }
-  }
-  return bestMove ? { ...bestMove, winRate: Math.round(inference.whiteWinRate), engine: V4_MODEL_NAME } : null;
+  const selectedMove = selectV4MoveByDifficulty(legalMoves, inference.policy);
+  return selectedMove ? { ...selectedMove, winRate: Math.round(inference.whiteWinRate), engine: V4_MODEL_NAME } : null;
 }
 
 async function refreshV4WinRate() {
@@ -1000,9 +1068,9 @@ function findAiMove() {
   const rescueMoves = ratedMoves.filter((move) => move.rescuedWhiteStones > 0 && move.blackReplyCapture <= move.capturedCount + 1);
   const saferMoves = ratedMoves.filter((move) => move.blackReplyCapture <= Math.max(1, move.capturedCount));
   let movePool = ratedMoves;
-  if ((aiStrength === "10k" || aiStrength === "1d") && hasWhiteDanger && rescueMoves.length) {
+  if (strength.protectWeak && hasWhiteDanger && rescueMoves.length) {
     movePool = rescueMoves;
-  } else if ((aiStrength === "10k" || aiStrength === "1d") && saferMoves.length) {
+  } else if (strength.protectWeak && saferMoves.length) {
     movePool = saferMoves;
   }
   const candidates = movePool.slice(0, Math.min(strength.candidateCount, movePool.length));
@@ -2017,6 +2085,11 @@ function renderWinrate() {
 function renderAiStrength() {
   aiStrengthPanel.classList.toggle("is-hidden", playMode !== "ai");
   if (aiModelStatus) aiModelStatus.textContent = v4ModelMessage;
+  const strength = AI_STRENGTHS[aiStrength] || AI_STRENGTHS.low;
+  if (aiDifficultyText) aiDifficultyText.textContent = strength.note;
+  aiStrengthPanel.querySelectorAll("[data-ai-strength]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.aiStrength === aiStrength);
+  });
 }
 
 function labelOfKey(key) {

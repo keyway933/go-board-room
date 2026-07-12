@@ -1,4 +1,4 @@
-const CACHE_NAME = "go-board-room-v4-online-room";
+const CACHE_NAME = "go-board-room-v5-ai-difficulty";
 const ASSETS = [
   "./",
   "./index.html",
