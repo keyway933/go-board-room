@@ -2468,7 +2468,14 @@ function getLobbySettings() {
 }
 
 function getMatchServerUrl() {
-  return (localStorage.getItem(MATCH_SERVER_URL_KEY) || DEFAULT_MATCH_SERVER_URL).replace(/\/+$/, "");
+  const stored = localStorage.getItem(MATCH_SERVER_URL_KEY);
+  const isPublicSite = window.location.hostname.endsWith("github.io");
+  const isOldLocalServer = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/i.test(stored || "");
+  if (isPublicSite && isOldLocalServer) {
+    localStorage.removeItem(MATCH_SERVER_URL_KEY);
+    return DEFAULT_MATCH_SERVER_URL;
+  }
+  return (stored || DEFAULT_MATCH_SERVER_URL).replace(/\/+$/, "");
 }
 
 function getMatchPlayerId() {

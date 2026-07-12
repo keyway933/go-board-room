@@ -1,4 +1,4 @@
-const CACHE_NAME = "go-board-room-v16-cloudflare-match";
+const CACHE_NAME = "go-board-room-v17-match-url-migration";
 const ASSETS = [
   "./",
   "./index.html",
