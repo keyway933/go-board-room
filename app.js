@@ -469,7 +469,7 @@ function renderAiHintControls(message = null) {
   } else if (turn !== BLACK) {
     aiHintText.textContent = "等 AI 下完白棋後，我再提示你。";
   } else if (aiHints.length) {
-    aiHintText.textContent = aiHints.map((hint) => `${hint.rank}. ${hint.label}`).join("　");
+    aiHintText.textContent = aiHints.map((hint) => hint.label).join("　");
   } else {
     aiHintText.textContent = "輪到你時會在棋盤上標出建議點。";
   }
@@ -2002,14 +2002,10 @@ function drawAiHints() {
     ctx.arc(x, y, radius, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(45, 111, 109, 0.18)";
     ctx.fill();
-    ctx.strokeStyle = hint.rank === 1 ? "#1f8f83" : "#b7791f";
+    ctx.strokeStyle = "#1f8f83";
     ctx.lineWidth = Math.max(2, layout.stoneRadius * 0.14);
     ctx.stroke();
-    ctx.fillStyle = "#20242a";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.font = `800 ${layout.stoneRadius * 0.86}px Segoe UI, sans-serif`;
-    ctx.fillText(String(hint.rank), x, y + layout.stoneRadius * 0.02);
+
   }
   ctx.restore();
 }
