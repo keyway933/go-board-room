@@ -101,7 +101,7 @@ let pendingConfirmAction = null;
 let pendingCancelAction = null;
 let aiStrength = "low";
 let aiHintsEnabled = false;
-let aiHintCount = 1;
+const AI_HINT_COUNT = 2;
 let aiHints = [];
 let aiHintLoading = false;
 let currentFinishedGameId = null;
@@ -451,7 +451,7 @@ async function refreshAiHints() {
     }
     const inference = await runV4Inference(board, hintColor);
     if (snapshot !== boardKey() || hintTurn !== turn || hintColor !== currentAiHintColor() || !canShowAiHints()) return;
-    aiHints = rankV4Moves(legalMoves, inference.policy).slice(0, aiHintCount).map((move, index) => ({
+    aiHints = rankV4Moves(legalMoves, inference.policy).slice(0, AI_HINT_COUNT).map((move, index) => ({
       key: move.key,
       label: labelOfKey(move.key),
       rank: index + 1,
@@ -471,9 +471,6 @@ function renderAiHintControls(message = null) {
   if (!aiHintToggle) return;
   aiHintToggle.setAttribute("aria-pressed", String(aiHintsEnabled));
   aiHintToggle.textContent = aiHintsEnabled ? "AI 提示：開" : "AI 提示：關";
-  aiStrengthPanel.querySelectorAll("[data-ai-hint-count]").forEach((button) => {
-    button.classList.toggle("active", Number(button.dataset.aiHintCount) === aiHintCount);
-  });
   if (!aiHintText) return;
   if (message) {
     aiHintText.textContent = message;
@@ -2732,14 +2729,6 @@ if (aiHintToggle) {
     refreshAiHints();
   });
 }
-aiStrengthPanel.querySelectorAll("[data-ai-hint-count]").forEach((button) => {
-  button.addEventListener("click", () => {
-    aiHintCount = Number(button.dataset.aiHintCount) || 1;
-    clearAiHints();
-    render();
-    refreshAiHints();
-  });
-});
 cancelDialogBtn.addEventListener("click", () => {
   const action = pendingCancelAction;
   hideConfirmDialog();

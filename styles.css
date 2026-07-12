@@ -398,6 +398,12 @@ h3 {
   font-size: 0.9rem;
 }
 
+.ai-hint-count-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-weight: 800;
+}
+
 .ai-hint-note {
   margin-top: 8px;
   color: var(--muted);
