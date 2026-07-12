@@ -58,6 +58,8 @@ const V4_MODEL_URL = "./models/v4-sgf-web.onnx";
 const V4_RUNTIME_PATH = "./vendor/onnxruntime/";
 const V4_MODEL_TIMEOUT_MS = 30000;
 const V4_INFERENCE_TIMEOUT_MS = 8000;
+const PEERJS_URL = "https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js";
+const ONLINE_ROOM_PREFIX = "gbr-";
 
 const DIRS = {
   square: [[1, 0], [-1, 0], [0, 1], [0, -1]],
@@ -93,6 +95,7 @@ let pendingMoveKey = null;
 let playMode = "traditional";
 let aiThinking = false;
 let pendingConfirmAction = null;
+let pendingCancelAction = null;
 let aiStrength = "20k";
 let currentFinishedGameId = null;
 let isGameHistoryExpanded = false;
@@ -102,6 +105,17 @@ let v4ModelMessage = "尚未載入";
 let v4WhiteWinRate = null;
 let nativeV4RequestCounter = 0;
 const nativeV4Requests = new Map();
+let peerJsPromise = null;
+let onlineState = {
+  role: null,
+  color: null,
+  room: null,
+  peer: null,
+  conn: null,
+  connected: false,
+  applyingRemote: false,
+  seq: 0,
+};
 
 const AI_STRENGTHS = {
   "30k": { label: "30級", candidateCount: 14, randomness: 18, depthBonus: 0.55 },
@@ -343,6 +357,7 @@ function startGame(nextPlayMode) {
 
 function showMainMenu() {
   aiThinking = false;
+  resetOnlineConnection();
   gameShell.classList.add("is-hidden");
   startScreen.classList.remove("is-hidden");
 }
@@ -1057,6 +1072,7 @@ function aiPass() {
 
 function tryPlay(key, fromAi = false) {
   clearPendingMove();
+  if (!fromAi && !canActOnline()) return;
   if (ownershipMode) return cycleOwnership(key);
   if (deadStoneMode) return removeDeadGroup(key);
 
@@ -1122,6 +1138,8 @@ function tryPlay(key, fromAi = false) {
   scoreVisible = false;
   setStatus(capturedCount ? `提掉 ${capturedCount} 子，輪到 ${colorName(turn)}。` : `輪到 ${colorName(turn)}。`);
   render();
+  sendOnlineState("move");
+  updateOnlineStatus();
   scheduleAiMove();
 }
 
@@ -1143,10 +1161,13 @@ function removeDeadGroup(key) {
   scoreVisible = true;
   setStatus(`已移除 ${colorName(color)} ${group.stones.length} 子，數子結果已更新。`);
   render();
+  sendOnlineState("dead-remove");
+  updateOnlineStatus();
 }
 
 function passTurn() {
   clearPendingMove();
+  if (!canActOnline()) return;
   if (deadStoneMode || ownershipMode) {
     setStatus("請先離開校正或提死子模式，再 Pass。");
     return;
@@ -1169,11 +1190,17 @@ function passTurn() {
     setStatus(`${colorName(opponent(turn))} Pass，輪到 ${colorName(turn)}。`);
   }
   render();
+  sendOnlineState("pass");
+  updateOnlineStatus();
   scheduleAiMove();
 }
 
 function undo() {
   clearPendingMove();
+  if (playMode === "online" && !onlineState.applyingRemote && !onlineState.connected) {
+    setStatus("連線房間還沒有接上，等朋友進來後再悔棋。");
+    return;
+  }
   const state = history.pop();
   if (!state) {
     setStatus("目前沒有可以悔的棋。");
@@ -1184,6 +1211,8 @@ function undo() {
     restore(history.pop());
   }
   setStatus(`已悔棋，輪到 ${gameOver ? "終局處理" : colorName(turn)}。`);
+  sendOnlineState("undo");
+  updateOnlineStatus();
 }
 
 function calculateAreaScore() {
@@ -1300,6 +1329,8 @@ function cycleOwnership(key) {
   scoreState = scoreFromTerritoryMap(scoreState.stones, nextMap);
   setStatus(`已把 ${labelOfKey(key)} 改為${ownerName(nextMap[key])}。`);
   render();
+  sendOnlineState("ownership");
+  updateOnlineStatus();
 }
 
 function toggleDeadGroup(key) {
@@ -1313,6 +1344,8 @@ function toggleDeadGroup(key) {
   scoreState = calculateAreaScore();
   setStatus(`${colorName(color)} ${group.stones.length} 子已${shouldMarkDead ? "標為死子，改算給對方" : "恢復為活子"}。`);
   render();
+  sendOnlineState("dead-mark");
+  updateOnlineStatus();
 }
 
 function ownerName(owner) {
@@ -1328,6 +1361,8 @@ function showScore() {
     ownershipMode = false;
     setStatus("已隱藏黑地、白地與中立點標記；數子結果仍保留。");
     render();
+    sendOnlineState("score-hide");
+    updateOnlineStatus();
     return;
   }
   scoreState = calculateAreaScore();
@@ -1338,6 +1373,8 @@ function showScore() {
   saveFinishedGame();
   setStatus("已用數子法判定，棋盤上的方塊就是每一個被計入的空點。");
   render();
+  sendOnlineState("score");
+  updateOnlineStatus();
 }
 
 function resetGame(nextMode = mode, nextSize = size) {
@@ -1363,6 +1400,8 @@ function resetGame(nextMode = mode, nextSize = size) {
   v4WhiteWinRate = null;
   setStatus("黑棋先下");
   render();
+  sendOnlineState("new-game");
+  updateOnlineStatus();
 }
 
 function setStatus(message) {
@@ -2096,6 +2135,7 @@ document.querySelectorAll("[data-mode]").forEach((button) => {
 
 function showConfirmDialog({ title, message, confirmText, cancelText = "留下", hideCancel = false, onConfirm }) {
   pendingConfirmAction = onConfirm;
+  pendingCancelAction = null;
   confirmDialogTitle.textContent = title;
   confirmDialogMessage.textContent = message;
   cancelDialogBtn.textContent = cancelText;
@@ -2107,11 +2147,13 @@ function showConfirmDialog({ title, message, confirmText, cancelText = "留下",
 
 function hideConfirmDialog() {
   pendingConfirmAction = null;
+  pendingCancelAction = null;
   confirmDialog.classList.add("is-hidden");
 }
 
 function showMainMenu() {
   aiThinking = false;
+  resetOnlineConnection();
   hideConfirmDialog();
   gameShell.classList.add("is-hidden");
   startScreen.classList.remove("is-hidden");
@@ -2143,6 +2185,276 @@ function requestNewGame() {
   resetGame(mode, size);
 }
 
+function loadPeerJs() {
+  if (window.Peer) return Promise.resolve(window.Peer);
+  if (peerJsPromise) return peerJsPromise;
+  peerJsPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = PEERJS_URL;
+    script.async = true;
+    script.onload = () => window.Peer ? resolve(window.Peer) : reject(new Error("PeerJS not available"));
+    script.onerror = () => reject(new Error("PeerJS load failed"));
+    document.head.append(script);
+  });
+  return peerJsPromise;
+}
+
+function makeRoomCode() {
+  return Math.random().toString(36).slice(2, 8).toUpperCase();
+}
+
+function normalizeRoomCode(value) {
+  return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12);
+}
+
+function onlinePeerId(room) {
+  return `${ONLINE_ROOM_PREFIX}${room.toLowerCase()}`;
+}
+
+function resetOnlineConnection() {
+  if (onlineState.conn) {
+    try { onlineState.conn.close(); } catch {}
+  }
+  if (onlineState.peer) {
+    try { onlineState.peer.destroy(); } catch {}
+  }
+  onlineState = {
+    role: null,
+    color: null,
+    room: null,
+    peer: null,
+    conn: null,
+    connected: false,
+    applyingRemote: false,
+    seq: 0,
+  };
+}
+
+function onlineShareUrl(room) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("room", room);
+  url.hash = "";
+  return url.toString();
+}
+
+function copyOnlineShareUrl(room) {
+  const url = onlineShareUrl(room);
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(url).catch(() => {});
+  }
+  return url;
+}
+
+function onlineSnapshot() {
+  return {
+    mode,
+    size,
+    board: cloneCells(board),
+    deadMap: cloneCells(deadMap),
+    moveNumbers: cloneCells(moveNumbers),
+    turn,
+    captures: { ...captures },
+    history: history.map((item) => ({ ...item, captures: { ...item.captures }, log: item.log.slice(), board: cloneCells(item.board), deadMap: cloneCells(item.deadMap), moveNumbers: cloneCells(item.moveNumbers || {}), scoreState: cloneScoreState(item.scoreState) })),
+    log: log.slice(),
+    moveCounter,
+    lastMoveKey,
+    previousBoardKey,
+    passCount,
+    gameOver,
+    deadStoneMode,
+    ownershipMode,
+    scoreState: cloneScoreState(scoreState),
+    scoreVisible,
+    showAllMoveNumbers,
+  };
+}
+
+function applyOnlineSnapshot(state) {
+  onlineState.applyingRemote = true;
+  try {
+    setupBoard(state.mode || "square", state.size || 19);
+    board = { ...board, ...(state.board || {}) };
+    deadMap = { ...deadMap, ...(state.deadMap || {}) };
+    moveNumbers = cloneCells(state.moveNumbers || {});
+    turn = state.turn || BLACK;
+    captures = { [BLACK]: state.captures?.[BLACK] || 0, [WHITE]: state.captures?.[WHITE] || 0 };
+    history = Array.isArray(state.history) ? state.history.map((item) => ({ ...item, captures: { ...item.captures }, log: Array.isArray(item.log) ? item.log.slice() : [], board: cloneCells(item.board || {}), deadMap: cloneCells(item.deadMap || {}), moveNumbers: cloneCells(item.moveNumbers || {}), scoreState: cloneScoreState(item.scoreState) })) : [];
+    log = Array.isArray(state.log) ? state.log.slice() : [];
+    moveCounter = state.moveCounter || 0;
+    lastMoveKey = state.lastMoveKey || null;
+    previousBoardKey = state.previousBoardKey || null;
+    passCount = state.passCount || 0;
+    gameOver = Boolean(state.gameOver);
+    deadStoneMode = Boolean(state.deadStoneMode);
+    ownershipMode = Boolean(state.ownershipMode);
+    scoreState = cloneScoreState(state.scoreState);
+    scoreVisible = Boolean(state.scoreVisible);
+    showAllMoveNumbers = Boolean(state.showAllMoveNumbers);
+    playMode = "online";
+    render();
+  } finally {
+    onlineState.applyingRemote = false;
+  }
+}
+
+function onlineColorLabel() {
+  if (!onlineState.color) return "旁觀";
+  return onlineState.color === BLACK ? "黑棋" : "白棋";
+}
+
+function updateOnlineStatus(extra = "") {
+  if (playMode !== "online") return;
+  const roomText = onlineState.room ? `房間 ${onlineState.room}` : "連線房間";
+  const sideText = onlineColorLabel();
+  const connText = onlineState.connected ? "已連線" : "等待連線";
+  const turnText = gameOver ? "棋局已結束" : `輪到 ${colorName(turn)}`;
+  setStatus(`${roomText} · ${sideText} · ${connText} · ${turnText}${extra ? ` · ${extra}` : ""}`);
+}
+
+function sendOnlineState(reason = "sync") {
+  if (playMode !== "online" || onlineState.applyingRemote || !onlineState.conn || !onlineState.connected) return;
+  onlineState.seq += 1;
+  onlineState.conn.send({ type: "state", seq: onlineState.seq, reason, state: onlineSnapshot() });
+}
+
+function handleOnlineData(message) {
+  if (!message || message.type !== "state" || !message.state) return;
+  applyOnlineSnapshot(message.state);
+  updateOnlineStatus("收到對方棋局");
+}
+
+function attachOnlineConnection(conn) {
+  onlineState.conn = conn;
+  conn.on("open", () => {
+    onlineState.connected = true;
+    updateOnlineStatus("可以開始下棋");
+    if (onlineState.role === "host") sendOnlineState("host-ready");
+  });
+  conn.on("data", handleOnlineData);
+  conn.on("close", () => {
+    onlineState.connected = false;
+    updateOnlineStatus("對方離線");
+  });
+  conn.on("error", () => {
+    onlineState.connected = false;
+    updateOnlineStatus("連線發生問題");
+  });
+}
+
+async function startOnlineHost() {
+  resetOnlineConnection();
+  playMode = "online";
+  onlineState.role = "host";
+  onlineState.color = BLACK;
+  onlineState.room = makeRoomCode();
+  startScreen.classList.add("is-hidden");
+  gameShell.classList.remove("is-hidden");
+  resetGame("square", 19);
+  updateOnlineStatus("建立中");
+
+  try {
+    const Peer = await loadPeerJs();
+    const peer = new Peer(onlinePeerId(onlineState.room), {
+      debug: 1,
+      config: { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] },
+    });
+    onlineState.peer = peer;
+    peer.on("open", () => {
+      const url = copyOnlineShareUrl(onlineState.room);
+      updateOnlineStatus(`把房間碼 ${onlineState.room} 傳給朋友，連結已嘗試複製`);
+      log.push(`連線房間 ${onlineState.room}`);
+      log.push(url);
+      renderLog();
+    });
+    peer.on("connection", attachOnlineConnection);
+    peer.on("error", (error) => {
+      console.error("online host error", error);
+      setStatus("連線房間建立失敗。請重整後再建立一次，或換一個網路試試。");
+    });
+  } catch (error) {
+    console.error("PeerJS host load failed", error);
+    setStatus("連線功能載入失敗。這台裝置目前可能無法連到連線服務。");
+  }
+}
+
+async function startOnlineGuest(roomCode) {
+  const room = normalizeRoomCode(roomCode);
+  if (!room) {
+    showOnlineSetupDialog();
+    return;
+  }
+  resetOnlineConnection();
+  playMode = "online";
+  onlineState.role = "guest";
+  onlineState.color = WHITE;
+  onlineState.room = room;
+  startScreen.classList.add("is-hidden");
+  gameShell.classList.remove("is-hidden");
+  resetGame("square", 19);
+  updateOnlineStatus("加入中");
+
+  try {
+    const Peer = await loadPeerJs();
+    const peer = new Peer(undefined, {
+      debug: 1,
+      config: { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] },
+    });
+    onlineState.peer = peer;
+    peer.on("open", () => {
+      const conn = peer.connect(onlinePeerId(room), { reliable: true });
+      attachOnlineConnection(conn);
+    });
+    peer.on("error", (error) => {
+      console.error("online guest error", error);
+      setStatus("加入房間失敗。請確認房主還開著房間，房間碼也沒有打錯。");
+    });
+  } catch (error) {
+    console.error("PeerJS guest load failed", error);
+    setStatus("連線功能載入失敗。這台裝置目前可能無法連到連線服務。");
+  }
+}
+
+function showOnlineSetupDialog() {
+  pendingConfirmAction = startOnlineHost;
+  pendingCancelAction = () => {
+    const input = document.querySelector("#onlineRoomInput");
+    const room = normalizeRoomCode(input?.value);
+    if (room) startOnlineGuest(room);
+    else showOnlineSetupDialog();
+  };
+  confirmDialogTitle.textContent = "連線對弈";
+  confirmDialogMessage.innerHTML = `
+    <span class="dialog-copy">建立房間後，把房間碼或連結傳給朋友；朋友輸入房間碼就能加入。</span>
+    <input id="onlineRoomInput" class="online-room-input" type="text" inputmode="latin" autocomplete="off" placeholder="朋友給你的房間碼">
+  `;
+  cancelDialogBtn.textContent = "加入房間";
+  confirmDialogBtn.textContent = "建立房間";
+  cancelDialogBtn.classList.remove("is-hidden");
+  confirmDialog.classList.remove("is-hidden");
+  document.querySelector("#onlineRoomInput")?.focus();
+}
+
+function startOnlineSetup() {
+  showOnlineSetupDialog();
+}
+
+function canActOnline() {
+  if (playMode !== "online" || onlineState.applyingRemote) return true;
+  if (!onlineState.connected) {
+    setStatus("連線房間還沒有接上，等朋友進來後再下。");
+    return false;
+  }
+  if (onlineState.color && turn !== onlineState.color && !deadStoneMode && !ownershipMode && !gameOver) {
+    setStatus(`現在輪到對方（${colorName(turn)}）。`);
+    return false;
+  }
+  return true;
+}
+
+function bootRoomFromUrl() {
+  const room = normalizeRoomCode(new URLSearchParams(window.location.search).get("room"));
+  if (room) window.setTimeout(() => startOnlineGuest(room), 250);
+}
 function showOnlineModeInfo(withAiHint) {
   showConfirmDialog({
     title: withAiHint ? "AI 提示連線" : "連線對弈",
@@ -2161,7 +2473,7 @@ document.querySelector("#scoreBtn").addEventListener("click", showScore);
 document.querySelector("#newGameBtn").addEventListener("click", requestNewGame);
 traditionalModeBtn.addEventListener("click", () => startGame("traditional"));
 aiModeBtn.addEventListener("click", () => startGame("ai"));
-onlineModeBtn.addEventListener("click", () => showOnlineModeInfo(false));
+onlineModeBtn.addEventListener("click", () => startOnlineSetup());
 onlineAiHintModeBtn.addEventListener("click", () => showOnlineModeInfo(true));
 backMenuBtn.addEventListener("click", requestMainMenu);
 aiStrengthPanel.querySelectorAll("[data-ai-strength]").forEach((button) => {
@@ -2172,7 +2484,11 @@ aiStrengthPanel.querySelectorAll("[data-ai-strength]").forEach((button) => {
     scheduleAiMove();
   });
 });
-cancelDialogBtn.addEventListener("click", hideConfirmDialog);
+cancelDialogBtn.addEventListener("click", () => {
+  const action = pendingCancelAction;
+  hideConfirmDialog();
+  if (action) action();
+});
 confirmDialogBtn.addEventListener("click", () => {
   const action = pendingConfirmAction;
   hideConfirmDialog();
@@ -2196,7 +2512,10 @@ deadModeBtn.addEventListener("click", () => {
   scoreVisible = true;
   setStatus(deadStoneMode ? "提死子模式：點一串死棋就會整串移除。" : "已離開提死子模式。");
   render();
+  sendOnlineState("dead-mode");
+  updateOnlineStatus();
 });
+bootRoomFromUrl();
 ownershipModeBtn.addEventListener("click", () => {
   clearPendingMove();
   if (!scoreState) scoreState = calculateAreaScore();
@@ -2205,6 +2524,8 @@ ownershipModeBtn.addEventListener("click", () => {
   deadStoneMode = false;
   setStatus(ownershipMode ? "校正歸屬模式：點空點切換歸屬；點棋子整串標死或恢復。" : "已離開校正歸屬模式。");
   render();
+  sendOnlineState("ownership-mode");
+  updateOnlineStatus();
 });
 window.addEventListener("resize", drawBoard);
 
@@ -2215,3 +2536,11 @@ if ("serviceWorker" in navigator) {
 }
 
 resetGame("square", 19);
+
+
+
+
+
+
+
+

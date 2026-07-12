@@ -130,7 +130,32 @@ button[aria-pressed="true"] {
   line-height: 1.55;
 }
 
-.dialog-actions {
+
+.dialog-copy {
+  display: block;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.online-room-input {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(32, 36, 42, 0.2);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.online-room-input:focus {
+  outline: 2px solid rgba(45, 111, 109, 0.25);
+  border-color: var(--accent);
+}.dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
@@ -834,3 +859,4 @@ h3 {
     max-height: 1710px;
   }
 }
+

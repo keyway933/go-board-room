@@ -1,4 +1,4 @@
-const CACHE_NAME = "go-board-room-v3-v4-sgf";
+const CACHE_NAME = "go-board-room-v4-online-room";
 const ASSETS = [
   "./",
   "./index.html",
@@ -38,3 +38,4 @@ self.addEventListener("fetch", (event) => {
       )
   );
 });
+
