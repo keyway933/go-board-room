@@ -105,6 +105,104 @@ button[aria-pressed="true"] {
   line-height: 1.5;
 }
 
+
+.lobby-panel {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(32, 36, 42, 0.12);
+}
+
+.lobby-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.lobby-head h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.lobby-head p,
+.lobby-empty {
+  margin-top: 6px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.lobby-pill {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(45, 111, 109, 0.12);
+  color: var(--accent);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.lobby-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.lobby-stats div {
+  padding: 12px;
+  border: 1px solid rgba(32, 36, 42, 0.12);
+  border-radius: 8px;
+  background: rgba(237, 228, 214, 0.48);
+}
+
+.lobby-stats span,
+.lobby-room-meta {
+  display: block;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.lobby-stats strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 1.55rem;
+}
+
+.lobby-room-list {
+  margin-top: 12px;
+  min-height: 54px;
+}
+
+.lobby-empty {
+  padding: 12px;
+  border: 1px dashed rgba(32, 36, 42, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.46);
+}
+
+.lobby-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.lobby-actions button {
+  min-height: 40px;
+}
+
+@media (max-width: 640px) {
+  .lobby-head {
+    flex-direction: column;
+  }
+
+  .lobby-stats,
+  .lobby-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
 .app-dialog-backdrop {
   position: fixed;
   inset: 0;

@@ -36,6 +36,32 @@
           <span>雙方連線下棋，AI 只提示建議落點。</span>
         </button>
       </div>
+      <section class="lobby-panel" aria-label="小棋室大廳">
+        <div class="lobby-head">
+          <div>
+            <h2>小棋室大廳</h2>
+            <p>看看有沒有棋友也在門口，想下棋時可以先開一間房。</p>
+          </div>
+          <span id="lobbyConnectionText" class="lobby-pill">大廳準備中</span>
+        </div>
+        <div class="lobby-stats" aria-label="大廳狀態">
+          <div>
+            <span>目前在線</span>
+            <strong id="lobbyOnlineCount">--</strong>
+          </div>
+          <div>
+            <span>等待對局</span>
+            <strong id="lobbyRoomCount">--</strong>
+          </div>
+        </div>
+        <div id="lobbyRoomList" class="lobby-room-list">
+          <p class="lobby-empty">公開大廳需要接上即時資料庫。現在可以先建立好友房間，把房間碼傳給朋友。</p>
+        </div>
+        <div class="lobby-actions">
+          <button id="publicLobbyBtn" type="button">公開等待對手</button>
+          <button id="privateRoomShortcutBtn" type="button">建立好友房間</button>
+        </div>
+      </section>
     </div>
   </section>
 

@@ -41,6 +41,11 @@ const traditionalModeBtn = document.querySelector("#traditionalModeBtn");
 const aiModeBtn = document.querySelector("#aiModeBtn");
 const onlineModeBtn = document.querySelector("#onlineModeBtn");
 const onlineAiHintModeBtn = document.querySelector("#onlineAiHintModeBtn");
+const lobbyConnectionText = document.querySelector("#lobbyConnectionText");
+const lobbyOnlineCount = document.querySelector("#lobbyOnlineCount");
+const lobbyRoomCount = document.querySelector("#lobbyRoomCount");
+const publicLobbyBtn = document.querySelector("#publicLobbyBtn");
+const privateRoomShortcutBtn = document.querySelector("#privateRoomShortcutBtn");
 const backMenuBtn = document.querySelector("#backMenuBtn");
 const confirmDialog = document.querySelector("#confirmDialog");
 const confirmDialogTitle = document.querySelector("#confirmDialogTitle");
@@ -2425,6 +2430,22 @@ function requestNewGame() {
   resetGame(mode, size);
 }
 
+
+function renderLobbyPreview() {
+  if (lobbyConnectionText) lobbyConnectionText.textContent = "大廳準備中";
+  if (lobbyOnlineCount) lobbyOnlineCount.textContent = "--";
+  if (lobbyRoomCount) lobbyRoomCount.textContent = "--";
+}
+
+function showPublicLobbyInfo() {
+  showConfirmDialog({
+    title: "公開大廳準備中",
+    message: "真正讓陌生棋友互相看見，需要接上即時資料庫。現在我可以先幫你建立好友房間，之後再把公開等待房接到這個位置。",
+    confirmText: "先建立好友房間",
+    cancelText: "先不要",
+    onConfirm: () => startOnlineSetup(false),
+  });
+}
 function loadPeerJs() {
   if (window.Peer) return Promise.resolve(window.Peer);
   if (peerJsPromise) return peerJsPromise;
@@ -2725,6 +2746,8 @@ traditionalModeBtn.addEventListener("click", () => startGame("traditional"));
 aiModeBtn.addEventListener("click", () => startGame("ai"));
 onlineModeBtn.addEventListener("click", () => startOnlineSetup(false));
 onlineAiHintModeBtn.addEventListener("click", () => startOnlineSetup(true));
+publicLobbyBtn?.addEventListener("click", showPublicLobbyInfo);
+privateRoomShortcutBtn?.addEventListener("click", () => startOnlineSetup(false));
 backMenuBtn.addEventListener("click", requestMainMenu);
 aiStrengthPanel.querySelectorAll("[data-ai-strength]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -2785,6 +2808,7 @@ deadModeBtn.addEventListener("click", () => {
   sendOnlineState("dead-mode");
   updateOnlineStatus();
 });
+renderLobbyPreview();
 bootRoomFromUrl();
 ownershipModeBtn.addEventListener("click", () => {
   clearPendingMove();
