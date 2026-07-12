@@ -72,6 +72,9 @@ const V4_MODEL_TIMEOUT_MS = 30000;
 const V4_INFERENCE_TIMEOUT_MS = 8000;
 const PEERJS_URL = "https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js";
 const ONLINE_ROOM_PREFIX = "gbr-";
+const MATCH_SERVER_URL_KEY = "go-board-room-match-server-url";
+const MATCH_PLAYER_ID_KEY = "go-board-room-match-player-id";
+const DEFAULT_MATCH_SERVER_URL = "http://127.0.0.1:8787";
 
 const DIRS = {
   square: [[1, 0], [-1, 0], [0, 1], [0, -1]],
@@ -123,6 +126,7 @@ let v4WhiteWinRate = null;
 let nativeV4RequestCounter = 0;
 const nativeV4Requests = new Map();
 let peerJsPromise = null;
+let matchmakingState = { ticketId: null, timer: null, active: false };
 let onlineAiHintsEnabled = false;
 let onlineState = {
   role: null,
@@ -2463,12 +2467,153 @@ function getLobbySettings() {
   };
 }
 
+function getMatchServerUrl() {
+  return (localStorage.getItem(MATCH_SERVER_URL_KEY) || DEFAULT_MATCH_SERVER_URL).replace(/\/+$/, "");
+}
+
+function getMatchPlayerId() {
+  let id = sessionStorage.getItem(MATCH_PLAYER_ID_KEY);
+  if (!id) {
+    id = `player-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    sessionStorage.setItem(MATCH_PLAYER_ID_KEY, id);
+  }
+  return id;
+}
+
+function boardModeFromLobby(boardName) {
+  if (boardName === "six") return "hex";
+  if (boardName === "torus") return "torus";
+  return "square";
+}
+
+function onlineOptionsFromLobbySettings(settings) {
+  return {
+    mode: boardModeFromLobby(settings.board),
+    size: Number(settings.size) || 19,
+  };
+}
+
+function setLobbyWaitingState(isWaiting, message = "") {
+  matchmakingState.active = isWaiting;
+  if (publicLobbyBtn) publicLobbyBtn.textContent = isWaiting ? "取消等待" : "等待配對";
+  if (lobbyConnectionText) lobbyConnectionText.textContent = isWaiting ? "等待中" : "配對大廳";
+  if (message && lobbyQueueSummary) lobbyQueueSummary.textContent = message;
+}
+
+async function matchServerRequest(path, options = {}) {
+  const response = await fetch(`${getMatchServerUrl()}${path}`, {
+    cache: "no-store",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+  if (!response.ok) throw new Error(`match server ${response.status}`);
+  return response.json();
+}
+
+function clearMatchPolling() {
+  if (matchmakingState.timer) window.clearTimeout(matchmakingState.timer);
+  matchmakingState.timer = null;
+}
+
+async function cancelMatchmaking() {
+  const ticketId = matchmakingState.ticketId;
+  clearMatchPolling();
+  matchmakingState.ticketId = null;
+  setLobbyWaitingState(false);
+  renderLobbyPreview();
+  if (ticketId) {
+    try {
+      await matchServerRequest("/api/cancel", {
+        method: "POST",
+        body: JSON.stringify({ ticketId }),
+      });
+    } catch {}
+  }
+}
+
+function handleMatchResult(result) {
+  if (!result || result.status !== "matched") return false;
+  clearMatchPolling();
+  matchmakingState.ticketId = null;
+  setLobbyWaitingState(false);
+  const settings = result.settings || getLobbySettings();
+  const withAiHint = settings.assist === "on";
+  const options = onlineOptionsFromLobbySettings(settings);
+  if (result.role === "host") {
+    startOnlineHost(withAiHint, { room: result.room, ...options });
+  } else {
+    setLobbyWaitingState(true, "配對成功，正在進入棋局。");
+    window.setTimeout(() => startOnlineGuest(result.room, withAiHint, options), 2200);
+  }
+  return true;
+}
+
+function pollMatchmaking(ticketId) {
+  clearMatchPolling();
+  matchmakingState.timer = window.setTimeout(async () => {
+    try {
+      const result = await matchServerRequest(`/api/status/${encodeURIComponent(ticketId)}`);
+      if (handleMatchResult(result)) return;
+      const settings = result.settings || getLobbySettings();
+      const boardText = LOBBY_LABELS.board[settings.board] || "標準";
+      const assistText = LOBBY_LABELS.assist[settings.assist] || "一般對局";
+      setLobbyWaitingState(true, `正在等待：${boardText} ${settings.size} 路，${assistText}。開第二個頁籤按一樣條件，就能配對測試。`);
+      pollMatchmaking(ticketId);
+    } catch (error) {
+      clearMatchPolling();
+      matchmakingState.ticketId = null;
+      setLobbyWaitingState(false);
+      showConfirmDialog({
+        title: "配對伺服器斷線",
+        message: "目前連不到配對伺服器。你仍然可以先用好友約戰，或確認本機 match-server.js 有沒有啟動。",
+        confirmText: "好友約戰",
+        cancelText: "先不要",
+        onConfirm: startLobbyFriendlyRoom,
+      });
+    }
+  }, 1200);
+}
+
+async function startMatchmaking() {
+  if (matchmakingState.active) {
+    await cancelMatchmaking();
+    return;
+  }
+  const settings = getLobbySettings();
+  const boardText = LOBBY_LABELS.board[settings.board] || "標準";
+  const assistText = LOBBY_LABELS.assist[settings.assist] || "一般對局";
+  setLobbyWaitingState(true, `正在送出：${boardText} ${settings.size} 路，${assistText}。`);
+  try {
+    const result = await matchServerRequest("/api/match", {
+      method: "POST",
+      body: JSON.stringify({ playerId: getMatchPlayerId(), settings }),
+    });
+    if (handleMatchResult(result)) return;
+    matchmakingState.ticketId = result.ticketId;
+    setLobbyWaitingState(true, `正在等待：${boardText} ${settings.size} 路，${assistText}。開第二個頁籤按一樣條件，就能配對測試。`);
+    pollMatchmaking(result.ticketId);
+  } catch (error) {
+    clearMatchPolling();
+    matchmakingState.ticketId = null;
+    setLobbyWaitingState(false);
+    showConfirmDialog({
+      title: "配對伺服器未啟動",
+      message: `目前連不到 ${getMatchServerUrl()}。若要測試公開配對，先在這台電腦執行 match-server.js；現在也可以先用好友約戰。`,
+      confirmText: "好友約戰",
+      cancelText: "先不要",
+      onConfirm: startLobbyFriendlyRoom,
+    });
+  }
+}
 function renderLobbyPreview() {
   const settings = getLobbySettings();
   const boardText = LOBBY_LABELS.board[settings.board] || "標準";
   const assistText = LOBBY_LABELS.assist[settings.assist] || "一般對局";
   const rankText = LOBBY_LABELS.rank[settings.rank] || "新手友善";
-  if (lobbyConnectionText) lobbyConnectionText.textContent = "配對雛形";
+  if (lobbyConnectionText) lobbyConnectionText.textContent = "配對大廳";
   if (lobbyOnlineCount) lobbyOnlineCount.textContent = "--";
   if (lobbyRoomCount) lobbyRoomCount.textContent = "--";
   if (lobbyQueueSummary) lobbyQueueSummary.textContent = `你要排：${boardText} ${settings.size} 路，${assistText}，${rankText}。`;
@@ -2481,20 +2626,6 @@ function selectLobbyOption(button) {
     option.setAttribute("aria-pressed", option === button ? "true" : "false");
   });
   renderLobbyPreview();
-}
-
-function showPublicLobbyInfo() {
-  const settings = getLobbySettings();
-  const boardText = LOBBY_LABELS.board[settings.board] || "標準";
-  const assistText = LOBBY_LABELS.assist[settings.assist] || "一般對局";
-  const rankText = LOBBY_LABELS.rank[settings.rank] || "新手友善";
-  showConfirmDialog({
-    title: "等待配對準備中",
-    message: `你選的是 ${boardText} ${settings.size} 路、${assistText}、${rankText}。真正自動配對需要接上即時資料庫，讓大家的等待狀態可以同步；現在可以先用好友約戰測這套規則。`,
-    confirmText: settings.assist === "on" ? "先開 AI 提示好友房" : "先開好友房",
-    cancelText: "先不要",
-    onConfirm: () => startOnlineSetup(settings.assist === "on"),
-  });
 }
 
 function startLobbyFriendlyRoom() {
@@ -2662,17 +2793,17 @@ function attachOnlineConnection(conn) {
   });
 }
 
-async function startOnlineHost(withAiHint = false) {
+async function startOnlineHost(withAiHint = false, options = {}) {
   resetOnlineConnection();
   playMode = "online";
   onlineAiHintsEnabled = Boolean(withAiHint);
   aiHintsEnabled = Boolean(withAiHint);
   onlineState.role = "host";
   onlineState.color = BLACK;
-  onlineState.room = makeRoomCode();
+  onlineState.room = normalizeRoomCode(options.room) || makeRoomCode();
   startScreen.classList.add("is-hidden");
   gameShell.classList.remove("is-hidden");
-  resetGame("square", 19);
+  resetGame(options.mode || "square", Number(options.size) || 19);
   updateOnlineStatus("建立中");
 
   try {
@@ -2700,7 +2831,7 @@ async function startOnlineHost(withAiHint = false) {
   }
 }
 
-async function startOnlineGuest(roomCode, withAiHint = false) {
+async function startOnlineGuest(roomCode, withAiHint = false, options = {}) {
   const room = normalizeRoomCode(roomCode);
   if (!room) {
     showOnlineSetupDialog(withAiHint);
@@ -2715,7 +2846,7 @@ async function startOnlineGuest(roomCode, withAiHint = false) {
   onlineState.room = room;
   startScreen.classList.add("is-hidden");
   gameShell.classList.remove("is-hidden");
-  resetGame("square", 19);
+  resetGame(options.mode || "square", Number(options.size) || 19);
   updateOnlineStatus("加入中");
 
   try {
@@ -2803,7 +2934,7 @@ aiModeBtn.addEventListener("click", () => startGame("ai"));
 onlineModeBtn.addEventListener("click", () => startOnlineSetup(false));
 onlineAiHintModeBtn.addEventListener("click", () => startOnlineSetup(true));
 lobbyOptionButtons.forEach((button) => button.addEventListener("click", () => selectLobbyOption(button)));
-publicLobbyBtn?.addEventListener("click", showPublicLobbyInfo);
+publicLobbyBtn?.addEventListener("click", startMatchmaking);
 privateRoomShortcutBtn?.addEventListener("click", startLobbyFriendlyRoom);
 backMenuBtn.addEventListener("click", requestMainMenu);
 aiStrengthPanel.querySelectorAll("[data-ai-strength]").forEach((button) => {
