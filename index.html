@@ -40,9 +40,9 @@
         <div class="lobby-head">
           <div>
             <h2>小棋室大廳</h2>
-            <p>看看有沒有棋友也在門口，想下棋時可以先開一間房。</p>
+            <p>選好想下的棋局，按下等待配對；好友約戰仍可用房間碼加入。</p>
           </div>
-          <span id="lobbyConnectionText" class="lobby-pill">大廳準備中</span>
+          <span id="lobbyConnectionText" class="lobby-pill">配對雛形</span>
         </div>
         <div class="lobby-stats" aria-label="大廳狀態">
           <div>
@@ -54,12 +54,45 @@
             <strong id="lobbyRoomCount">--</strong>
           </div>
         </div>
+        <div class="lobby-match-card" aria-label="配對設定">
+          <div class="lobby-field">
+            <span>棋盤</span>
+            <div class="lobby-segment" role="group" aria-label="選擇棋盤">
+              <button type="button" data-lobby-board="standard" aria-pressed="true">標準</button>
+              <button type="button" data-lobby-board="six" aria-pressed="false">六氣</button>
+              <button type="button" data-lobby-board="torus" aria-pressed="false">甜甜圈</button>
+            </div>
+          </div>
+          <div class="lobby-field">
+            <span>路數</span>
+            <div class="lobby-segment" role="group" aria-label="選擇路數">
+              <button type="button" data-lobby-size="9" aria-pressed="false">9 路</button>
+              <button type="button" data-lobby-size="13" aria-pressed="false">13 路</button>
+              <button type="button" data-lobby-size="19" aria-pressed="true">19 路</button>
+            </div>
+          </div>
+          <div class="lobby-field">
+            <span>玩法</span>
+            <div class="lobby-segment" role="group" aria-label="選擇玩法">
+              <button type="button" data-lobby-assist="off" aria-pressed="true">一般</button>
+              <button type="button" data-lobby-assist="on" aria-pressed="false">AI 提示</button>
+            </div>
+          </div>
+          <div class="lobby-field">
+            <span>棋力感覺</span>
+            <div class="lobby-segment" role="group" aria-label="選擇棋力">
+              <button type="button" data-lobby-rank="beginner" aria-pressed="true">新手</button>
+              <button type="button" data-lobby-rank="casual" aria-pressed="false">普通</button>
+              <button type="button" data-lobby-rank="steady" aria-pressed="false">熟手</button>
+            </div>
+          </div>
+        </div>
         <div id="lobbyRoomList" class="lobby-room-list">
-          <p class="lobby-empty">公開大廳需要接上即時資料庫。現在可以先建立好友房間，把房間碼傳給朋友。</p>
+          <p id="lobbyQueueSummary" class="lobby-empty">你要排：標準 19 路，一般對局，新手友善。</p>
         </div>
         <div class="lobby-actions">
-          <button id="publicLobbyBtn" type="button">公開等待對手</button>
-          <button id="privateRoomShortcutBtn" type="button">建立好友房間</button>
+          <button id="publicLobbyBtn" type="button">等待配對</button>
+          <button id="privateRoomShortcutBtn" type="button">好友約戰</button>
         </div>
       </section>
     </div>

@@ -44,6 +44,8 @@ const onlineAiHintModeBtn = document.querySelector("#onlineAiHintModeBtn");
 const lobbyConnectionText = document.querySelector("#lobbyConnectionText");
 const lobbyOnlineCount = document.querySelector("#lobbyOnlineCount");
 const lobbyRoomCount = document.querySelector("#lobbyRoomCount");
+const lobbyQueueSummary = document.querySelector("#lobbyQueueSummary");
+const lobbyOptionButtons = document.querySelectorAll("[data-lobby-board], [data-lobby-size], [data-lobby-assist], [data-lobby-rank]");
 const publicLobbyBtn = document.querySelector("#publicLobbyBtn");
 const privateRoomShortcutBtn = document.querySelector("#privateRoomShortcutBtn");
 const backMenuBtn = document.querySelector("#backMenuBtn");
@@ -2431,21 +2433,75 @@ function requestNewGame() {
 }
 
 
+const LOBBY_LABELS = {
+  board: {
+    standard: "標準",
+    six: "六氣",
+    torus: "甜甜圈",
+  },
+  assist: {
+    off: "一般對局",
+    on: "AI 提示對局",
+  },
+  rank: {
+    beginner: "新手友善",
+    casual: "普通棋感",
+    steady: "熟手切磋",
+  },
+};
+
+function getLobbyChoice(name, fallback) {
+  return document.querySelector(`[data-lobby-${name}][aria-pressed="true"]`)?.dataset[`lobby${name[0].toUpperCase()}${name.slice(1)}`] || fallback;
+}
+
+function getLobbySettings() {
+  return {
+    board: getLobbyChoice("board", "standard"),
+    size: getLobbyChoice("size", "19"),
+    assist: getLobbyChoice("assist", "off"),
+    rank: getLobbyChoice("rank", "beginner"),
+  };
+}
+
 function renderLobbyPreview() {
-  if (lobbyConnectionText) lobbyConnectionText.textContent = "大廳準備中";
+  const settings = getLobbySettings();
+  const boardText = LOBBY_LABELS.board[settings.board] || "標準";
+  const assistText = LOBBY_LABELS.assist[settings.assist] || "一般對局";
+  const rankText = LOBBY_LABELS.rank[settings.rank] || "新手友善";
+  if (lobbyConnectionText) lobbyConnectionText.textContent = "配對雛形";
   if (lobbyOnlineCount) lobbyOnlineCount.textContent = "--";
   if (lobbyRoomCount) lobbyRoomCount.textContent = "--";
+  if (lobbyQueueSummary) lobbyQueueSummary.textContent = `你要排：${boardText} ${settings.size} 路，${assistText}，${rankText}。`;
+}
+
+function selectLobbyOption(button) {
+  const group = button.closest(".lobby-segment");
+  if (!group) return;
+  group.querySelectorAll("button").forEach((option) => {
+    option.setAttribute("aria-pressed", option === button ? "true" : "false");
+  });
+  renderLobbyPreview();
 }
 
 function showPublicLobbyInfo() {
+  const settings = getLobbySettings();
+  const boardText = LOBBY_LABELS.board[settings.board] || "標準";
+  const assistText = LOBBY_LABELS.assist[settings.assist] || "一般對局";
+  const rankText = LOBBY_LABELS.rank[settings.rank] || "新手友善";
   showConfirmDialog({
-    title: "公開大廳準備中",
-    message: "真正讓陌生棋友互相看見，需要接上即時資料庫。現在我可以先幫你建立好友房間，之後再把公開等待房接到這個位置。",
-    confirmText: "先建立好友房間",
+    title: "等待配對準備中",
+    message: `你選的是 ${boardText} ${settings.size} 路、${assistText}、${rankText}。真正自動配對需要接上即時資料庫，讓大家的等待狀態可以同步；現在可以先用好友約戰測這套規則。`,
+    confirmText: settings.assist === "on" ? "先開 AI 提示好友房" : "先開好友房",
     cancelText: "先不要",
-    onConfirm: () => startOnlineSetup(false),
+    onConfirm: () => startOnlineSetup(settings.assist === "on"),
   });
 }
+
+function startLobbyFriendlyRoom() {
+  const settings = getLobbySettings();
+  startOnlineSetup(settings.assist === "on");
+}
+
 function loadPeerJs() {
   if (window.Peer) return Promise.resolve(window.Peer);
   if (peerJsPromise) return peerJsPromise;
@@ -2746,8 +2802,9 @@ traditionalModeBtn.addEventListener("click", () => startGame("traditional"));
 aiModeBtn.addEventListener("click", () => startGame("ai"));
 onlineModeBtn.addEventListener("click", () => startOnlineSetup(false));
 onlineAiHintModeBtn.addEventListener("click", () => startOnlineSetup(true));
+lobbyOptionButtons.forEach((button) => button.addEventListener("click", () => selectLobbyOption(button)));
 publicLobbyBtn?.addEventListener("click", showPublicLobbyInfo);
-privateRoomShortcutBtn?.addEventListener("click", () => startOnlineSetup(false));
+privateRoomShortcutBtn?.addEventListener("click", startLobbyFriendlyRoom);
 backMenuBtn.addEventListener("click", requestMainMenu);
 aiStrengthPanel.querySelectorAll("[data-ai-strength]").forEach((button) => {
   button.addEventListener("click", () => {
