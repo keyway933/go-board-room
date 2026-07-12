@@ -1,0 +1,9 @@
+{
+  "scripts": {
+    "check": "node --check app.js && node --check match-server.js && node --check workers/match-worker.js",
+    "deploy:match": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.24.3"
+  }
+}

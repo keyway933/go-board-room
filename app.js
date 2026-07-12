@@ -74,7 +74,7 @@ const PEERJS_URL = "https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js";
 const ONLINE_ROOM_PREFIX = "gbr-";
 const MATCH_SERVER_URL_KEY = "go-board-room-match-server-url";
 const MATCH_PLAYER_ID_KEY = "go-board-room-match-player-id";
-const DEFAULT_MATCH_SERVER_URL = "http://127.0.0.1:8787";
+const DEFAULT_MATCH_SERVER_URL = "https://go-board-room-match.cba3516.workers.dev";
 
 const DIRS = {
   square: [[1, 0], [-1, 0], [0, 1], [0, -1]],
@@ -2650,7 +2650,7 @@ async function startMatchmaking() {
     }
     showConfirmDialog({
       title: "公開配對伺服器尚未上線",
-      message: "網址沒有錯，也不是你擋到權限。現在 GitHub Pages 只能放靜態網頁，不能常駐配對伺服器；公開陌生配對需要再部署一個線上後端。現在可以先用好友約戰。",
+      message: "公開配對服務暫時連不上。你仍然可以先用好友約戰，或稍後再試一次。",
       confirmText: "好友約戰",
       cancelText: "先不要",
       onConfirm: startLobbyFriendlyRoom,
