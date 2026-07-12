@@ -478,7 +478,10 @@ function renderAiHintControls(message = null) {
   if (!aiHintToggle) return;
   aiHintToggle.setAttribute("aria-pressed", String(aiHintsEnabled));
   aiHintToggle.textContent = aiHintsEnabled ? "AI 提示：開" : "AI 提示：關";
-  if (aiHintCountControls) aiHintCountControls.classList.toggle("is-hidden", onlineAiHintsEnabled);
+  if (aiHintCountControls) {
+    aiHintCountControls.classList.toggle("is-hidden", onlineAiHintsEnabled);
+    aiHintCountControls.setAttribute("aria-disabled", String(onlineAiHintsEnabled));
+  }
   if (aiHintFixedNote) aiHintFixedNote.classList.toggle("is-hidden", !onlineAiHintsEnabled);
   aiStrengthPanel.querySelectorAll("[data-ai-hint-count]").forEach((button) => {
     button.classList.toggle("active", Number(button.dataset.aiHintCount) === aiHintCount);
@@ -2741,15 +2744,16 @@ if (aiHintToggle) {
     refreshAiHints();
   });
 }
-aiStrengthPanel.querySelectorAll("[data-ai-hint-count]").forEach((button) => {
-  button.addEventListener("click", () => {
-    if (onlineAiHintsEnabled) return;
+if (aiHintCountControls) {
+  aiHintCountControls.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-ai-hint-count]");
+    if (!button || onlineAiHintsEnabled) return;
     aiHintCount = Number(button.dataset.aiHintCount) || 1;
     clearAiHints();
     render();
     refreshAiHints();
   });
-});
+}
 cancelDialogBtn.addEventListener("click", () => {
   const action = pendingCancelAction;
   hideConfirmDialog();
