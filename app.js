@@ -113,6 +113,7 @@ let v4WhiteWinRate = null;
 let nativeV4RequestCounter = 0;
 const nativeV4Requests = new Map();
 let peerJsPromise = null;
+let onlineAiHintsEnabled = false;
 let onlineState = {
   role: null,
   color: null,
@@ -397,10 +398,23 @@ function clearAiHints() {
   aiHintLoading = false;
 }
 
+function isOnlinePlayMode() {
+  return playMode === "online";
+}
+
+function isAiHintPlayMode() {
+  return playMode === "ai" || (isOnlinePlayMode() && onlineAiHintsEnabled);
+}
+
+function currentAiHintColor() {
+  if (playMode === "ai") return BLACK;
+  if (isOnlinePlayMode() && onlineAiHintsEnabled && onlineState.connected && onlineState.color && turn === onlineState.color) return turn;
+  return null;
+}
+
 function canShowAiHints() {
-  return playMode === "ai"
-    && aiHintsEnabled
-    && turn === BLACK
+  return aiHintsEnabled
+    && currentAiHintColor()
     && !gameOver
     && !deadStoneMode
     && !ownershipMode
@@ -426,16 +440,17 @@ async function refreshAiHints() {
   renderAiHintControls("AI 正在看棋盤...");
   const snapshot = boardKey();
   const hintTurn = turn;
+  const hintColor = currentAiHintColor();
 
   try {
-    const legalMoves = legalV4MovesFor(BLACK);
+    const legalMoves = legalV4MovesFor(hintColor);
     if (!legalMoves.length) {
       aiHints = [];
       renderAiHintControls("目前沒有合法提示點。");
       return;
     }
-    const inference = await runV4Inference(board, BLACK);
-    if (snapshot !== boardKey() || hintTurn !== turn || !canShowAiHints()) return;
+    const inference = await runV4Inference(board, hintColor);
+    if (snapshot !== boardKey() || hintTurn !== turn || hintColor !== currentAiHintColor() || !canShowAiHints()) return;
     aiHints = rankV4Moves(legalMoves, inference.policy).slice(0, aiHintCount).map((move, index) => ({
       key: move.key,
       label: labelOfKey(move.key),
@@ -465,9 +480,11 @@ function renderAiHintControls(message = null) {
   } else if (!aiHintsEnabled) {
     aiHintText.textContent = "打開後，輪到你時會在棋盤上標出建議點。";
   } else if (!isV4PositionSupported()) {
-    aiHintText.textContent = "目前提示只支援標準 19 路 AI 對弈。";
-  } else if (turn !== BLACK) {
-    aiHintText.textContent = "等 AI 下完白棋後，我再提示你。";
+    aiHintText.textContent = "目前提示只支援標準 19 路棋盤。";
+  } else if (isOnlinePlayMode() && onlineAiHintsEnabled && !onlineState.connected) {
+    aiHintText.textContent = "連線後，輪到你時會提示建議點。";
+  } else if (!currentAiHintColor()) {
+    aiHintText.textContent = "輪到你時會在棋盤上標出建議點。";
   } else if (aiHints.length) {
     aiHintText.textContent = aiHints.map((hint) => hint.label).join("　");
   } else {
@@ -511,6 +528,8 @@ function opponent(color) {
 
 function startGame(nextPlayMode) {
   playMode = nextPlayMode;
+  onlineAiHintsEnabled = false;
+  if (playMode !== "ai") aiHintsEnabled = false;
   aiThinking = false;
   startScreen.classList.add("is-hidden");
   gameShell.classList.remove("is-hidden");
@@ -531,6 +550,7 @@ function startGame(nextPlayMode) {
 
 function showMainMenu() {
   aiThinking = false;
+  onlineAiHintsEnabled = false;
   resetOnlineConnection();
   gameShell.classList.add("is-hidden");
   startScreen.classList.remove("is-hidden");
@@ -1990,7 +2010,7 @@ function drawStones() {
 
 
 function drawAiHints() {
-  if (!aiHintsEnabled || !aiHints.length || playMode !== "ai" || turn !== BLACK) return;
+  if (!aiHintsEnabled || !aiHints.length || !isAiHintPlayMode() || !currentAiHintColor()) return;
   ctx.save();
   for (const hint of aiHints) {
     if (board[hint.key] !== EMPTY) continue;
@@ -2217,7 +2237,7 @@ function renderWinrate() {
 }
 
 function renderAiStrength() {
-  aiStrengthPanel.classList.toggle("is-hidden", playMode !== "ai");
+  aiStrengthPanel.classList.toggle("is-hidden", playMode !== "ai" && !onlineAiHintsEnabled);
   if (aiModelStatus) aiModelStatus.textContent = v4ModelMessage;
   const strength = AI_STRENGTHS[aiStrength] || AI_STRENGTHS.low;
   if (aiDifficultyText) aiDifficultyText.textContent = strength.note;
@@ -2360,6 +2380,7 @@ function hideConfirmDialog() {
 
 function showMainMenu() {
   aiThinking = false;
+  onlineAiHintsEnabled = false;
   resetOnlineConnection();
   hideConfirmDialog();
   gameShell.classList.add("is-hidden");
@@ -2440,6 +2461,8 @@ function resetOnlineConnection() {
 function onlineShareUrl(room) {
   const url = new URL(window.location.href);
   url.searchParams.set("room", room);
+  if (onlineAiHintsEnabled) url.searchParams.set("assist", "1");
+  else url.searchParams.delete("assist");
   url.hash = "";
   return url.toString();
 }
@@ -2527,6 +2550,7 @@ function sendOnlineState(reason = "sync") {
 function handleOnlineData(message) {
   if (!message || message.type !== "state" || !message.state) return;
   applyOnlineSnapshot(message.state);
+  refreshAiHints();
   updateOnlineStatus("收到對方棋局");
 }
 
@@ -2536,6 +2560,7 @@ function attachOnlineConnection(conn) {
     onlineState.connected = true;
     updateOnlineStatus("可以開始下棋");
     if (onlineState.role === "host") sendOnlineState("host-ready");
+    refreshAiHints();
   });
   conn.on("data", handleOnlineData);
   conn.on("close", () => {
@@ -2548,9 +2573,11 @@ function attachOnlineConnection(conn) {
   });
 }
 
-async function startOnlineHost() {
+async function startOnlineHost(withAiHint = false) {
   resetOnlineConnection();
   playMode = "online";
+  onlineAiHintsEnabled = Boolean(withAiHint);
+  aiHintsEnabled = Boolean(withAiHint);
   onlineState.role = "host";
   onlineState.color = BLACK;
   onlineState.room = makeRoomCode();
@@ -2584,14 +2611,16 @@ async function startOnlineHost() {
   }
 }
 
-async function startOnlineGuest(roomCode) {
+async function startOnlineGuest(roomCode, withAiHint = false) {
   const room = normalizeRoomCode(roomCode);
   if (!room) {
-    showOnlineSetupDialog();
+    showOnlineSetupDialog(withAiHint);
     return;
   }
   resetOnlineConnection();
   playMode = "online";
+  onlineAiHintsEnabled = Boolean(withAiHint);
+  aiHintsEnabled = Boolean(withAiHint);
   onlineState.role = "guest";
   onlineState.color = WHITE;
   onlineState.room = room;
@@ -2621,15 +2650,15 @@ async function startOnlineGuest(roomCode) {
   }
 }
 
-function showOnlineSetupDialog() {
-  pendingConfirmAction = startOnlineHost;
+function showOnlineSetupDialog(withAiHint = false) {
+  pendingConfirmAction = () => startOnlineHost(withAiHint);
   pendingCancelAction = () => {
     const input = document.querySelector("#onlineRoomInput");
     const room = normalizeRoomCode(input?.value);
-    if (room) startOnlineGuest(room);
-    else showOnlineSetupDialog();
+    if (room) startOnlineGuest(room, withAiHint);
+    else showOnlineSetupDialog(withAiHint);
   };
-  confirmDialogTitle.textContent = "連線對弈";
+  confirmDialogTitle.textContent = withAiHint ? "AI 提示連線" : "連線對弈";
   confirmDialogMessage.innerHTML = `
     <span class="dialog-copy">建立房間後，把房間碼或連結傳給朋友；朋友輸入房間碼就能加入。</span>
     <input id="onlineRoomInput" class="online-room-input" type="text" inputmode="latin" autocomplete="off" placeholder="朋友給你的房間碼">
@@ -2641,8 +2670,8 @@ function showOnlineSetupDialog() {
   document.querySelector("#onlineRoomInput")?.focus();
 }
 
-function startOnlineSetup() {
-  showOnlineSetupDialog();
+function startOnlineSetup(withAiHint = false) {
+  showOnlineSetupDialog(withAiHint);
 }
 
 function canActOnline() {
@@ -2659,8 +2688,10 @@ function canActOnline() {
 }
 
 function bootRoomFromUrl() {
-  const room = normalizeRoomCode(new URLSearchParams(window.location.search).get("room"));
-  if (room) window.setTimeout(() => startOnlineGuest(room), 250);
+  const params = new URLSearchParams(window.location.search);
+  const room = normalizeRoomCode(params.get("room"));
+  const withAiHint = params.get("assist") === "1";
+  if (room) window.setTimeout(() => startOnlineGuest(room, withAiHint), 250);
 }
 function showOnlineModeInfo(withAiHint) {
   showConfirmDialog({
@@ -2680,8 +2711,8 @@ document.querySelector("#scoreBtn").addEventListener("click", showScore);
 document.querySelector("#newGameBtn").addEventListener("click", requestNewGame);
 traditionalModeBtn.addEventListener("click", () => startGame("traditional"));
 aiModeBtn.addEventListener("click", () => startGame("ai"));
-onlineModeBtn.addEventListener("click", () => startOnlineSetup());
-onlineAiHintModeBtn.addEventListener("click", () => showOnlineModeInfo(true));
+onlineModeBtn.addEventListener("click", () => startOnlineSetup(false));
+onlineAiHintModeBtn.addEventListener("click", () => startOnlineSetup(true));
 backMenuBtn.addEventListener("click", requestMainMenu);
 aiStrengthPanel.querySelectorAll("[data-ai-strength]").forEach((button) => {
   button.addEventListener("click", () => {
