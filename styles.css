@@ -378,6 +378,31 @@ h3 {
   color: var(--muted);
   font-size: 0.9rem;
   line-height: 1.45;
+}
+.ai-hint-panel {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(32, 36, 42, 0.12);
+}
+
+.ai-hint-count {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ai-hint-count button {
+  min-height: 38px;
+  padding: 0 8px;
+  font-size: 0.9rem;
+}
+
+.ai-hint-note {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
 }.ai-strength-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

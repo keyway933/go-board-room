@@ -31,6 +31,8 @@ const moveNumberToggle = document.querySelector("#moveNumberToggle");
 const aiStrengthPanel = document.querySelector("#aiStrengthPanel");
 const aiModelStatus = document.querySelector("#aiModelStatus");
 const aiDifficultyText = document.querySelector("#aiDifficultyText");
+const aiHintToggle = document.querySelector("#aiHintToggle");
+const aiHintText = document.querySelector("#aiHintText");
 const startScreen = document.querySelector("#startScreen");
 const gameShell = document.querySelector("#gameShell");
 const traditionalModeBtn = document.querySelector("#traditionalModeBtn");
@@ -98,6 +100,10 @@ let aiThinking = false;
 let pendingConfirmAction = null;
 let pendingCancelAction = null;
 let aiStrength = "low";
+let aiHintsEnabled = false;
+let aiHintCount = 1;
+let aiHints = [];
+let aiHintLoading = false;
 let currentFinishedGameId = null;
 let isGameHistoryExpanded = false;
 let v4SessionPromise = null;
@@ -368,6 +374,106 @@ function selectV4MoveByDifficulty(legalMoves, policy) {
   return chooseWeightedMove(ratedMoves.slice(0, topN), strength.v4Temperature);
 }
 
+
+function legalV4MovesFor(color) {
+  if (!isV4PositionSupported()) return [];
+  return points
+    .map((point) => previewMove(point.key, color))
+    .filter(Boolean);
+}
+
+function rankV4Moves(legalMoves, policy) {
+  return legalMoves
+    .map((move) => {
+      const { a: x, b: y } = parseKey(move.key);
+      return { ...move, logit: Number(policy[y * 19 + x]) };
+    })
+    .filter((move) => Number.isFinite(move.logit))
+    .sort((left, right) => right.logit - left.logit);
+}
+
+function clearAiHints() {
+  aiHints = [];
+  aiHintLoading = false;
+}
+
+function canShowAiHints() {
+  return playMode === "ai"
+    && aiHintsEnabled
+    && turn === BLACK
+    && !gameOver
+    && !deadStoneMode
+    && !ownershipMode
+    && isV4PositionSupported();
+}
+
+async function refreshAiHints() {
+  if (!aiHintsEnabled) {
+    clearAiHints();
+    renderAiHintControls();
+    return;
+  }
+  if (!canShowAiHints()) {
+    aiHints = [];
+    renderAiHintControls();
+    render();
+    return;
+  }
+  if (aiHintLoading) return;
+
+  aiHintLoading = true;
+  aiHints = [];
+  renderAiHintControls("AI 正在看棋盤...");
+  const snapshot = boardKey();
+  const hintTurn = turn;
+
+  try {
+    const legalMoves = legalV4MovesFor(BLACK);
+    if (!legalMoves.length) {
+      aiHints = [];
+      renderAiHintControls("目前沒有合法提示點。");
+      return;
+    }
+    const inference = await runV4Inference(board, BLACK);
+    if (snapshot !== boardKey() || hintTurn !== turn || !canShowAiHints()) return;
+    aiHints = rankV4Moves(legalMoves, inference.policy).slice(0, aiHintCount).map((move, index) => ({
+      key: move.key,
+      label: labelOfKey(move.key),
+      rank: index + 1,
+    }));
+    renderAiHintControls();
+  } catch (error) {
+    console.warn("AI hint failed", error);
+    aiHints = [];
+    renderAiHintControls("提示暫時算不出來，先自己下看看也可以。");
+  } finally {
+    aiHintLoading = false;
+    render();
+  }
+}
+
+function renderAiHintControls(message = null) {
+  if (!aiHintToggle) return;
+  aiHintToggle.setAttribute("aria-pressed", String(aiHintsEnabled));
+  aiHintToggle.textContent = aiHintsEnabled ? "AI 提示：開" : "AI 提示：關";
+  aiStrengthPanel.querySelectorAll("[data-ai-hint-count]").forEach((button) => {
+    button.classList.toggle("active", Number(button.dataset.aiHintCount) === aiHintCount);
+  });
+  if (!aiHintText) return;
+  if (message) {
+    aiHintText.textContent = message;
+  } else if (!aiHintsEnabled) {
+    aiHintText.textContent = "打開後，輪到你時會在棋盤上標出建議點。";
+  } else if (!isV4PositionSupported()) {
+    aiHintText.textContent = "目前提示只支援標準 19 路 AI 對弈。";
+  } else if (turn !== BLACK) {
+    aiHintText.textContent = "等 AI 下完白棋後，我再提示你。";
+  } else if (aiHints.length) {
+    aiHintText.textContent = aiHints.map((hint) => `${hint.rank}. ${hint.label}`).join("　");
+  } else {
+    aiHintText.textContent = "輪到你時會在棋盤上標出建議點。";
+  }
+}
 async function findV4Move() {
   if (!isV4PositionSupported()) throw new Error("V4-SGF 只支援標準 19 路");
   const legalMoves = points
@@ -1136,6 +1242,7 @@ function aiPass() {
     setStatus("AI Pass，輪到黑棋。");
   }
   render();
+  refreshAiHints();
 }
 
 function tryPlay(key, fromAi = false) {
@@ -1143,6 +1250,7 @@ function tryPlay(key, fromAi = false) {
   if (!fromAi && !canActOnline()) return;
   if (ownershipMode) return cycleOwnership(key);
   if (deadStoneMode) return removeDeadGroup(key);
+  if (!fromAi) clearAiHints();
 
   if (playMode === "ai" && turn === WHITE && !fromAi) {
     setStatus("AI 正在思考，請等白棋落子。");
@@ -1209,6 +1317,7 @@ function tryPlay(key, fromAi = false) {
   sendOnlineState("move");
   updateOnlineStatus();
   scheduleAiMove();
+  if (fromAi) refreshAiHints();
 }
 
 function removeDeadGroup(key) {
@@ -1235,6 +1344,7 @@ function removeDeadGroup(key) {
 
 function passTurn() {
   clearPendingMove();
+  clearAiHints();
   if (!canActOnline()) return;
   if (deadStoneMode || ownershipMode) {
     setStatus("請先離開校正或提死子模式，再 Pass。");
@@ -1281,6 +1391,7 @@ function undo() {
   setStatus(`已悔棋，輪到 ${gameOver ? "終局處理" : colorName(turn)}。`);
   sendOnlineState("undo");
   updateOnlineStatus();
+  refreshAiHints();
 }
 
 function calculateAreaScore() {
@@ -1485,6 +1596,7 @@ function render() {
   renderMoveNumberToggle();
   renderWinrate();
   renderAiStrength();
+  renderAiHintControls();
   renderGameHistory();
 }
 
@@ -1872,9 +1984,35 @@ function drawStones() {
       point.key === lastMoveKey
     );
   }
+  drawAiHints();
   drawPendingMove();
 }
 
+
+function drawAiHints() {
+  if (!aiHintsEnabled || !aiHints.length || playMode !== "ai" || turn !== BLACK) return;
+  ctx.save();
+  for (const hint of aiHints) {
+    if (board[hint.key] !== EMPTY) continue;
+    const point = points.find((item) => item.key === hint.key);
+    if (!point) continue;
+    const { x, y } = pointToPixel(point);
+    const radius = layout.stoneRadius * 0.72;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(45, 111, 109, 0.18)";
+    ctx.fill();
+    ctx.strokeStyle = hint.rank === 1 ? "#1f8f83" : "#b7791f";
+    ctx.lineWidth = Math.max(2, layout.stoneRadius * 0.14);
+    ctx.stroke();
+    ctx.fillStyle = "#20242a";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = `800 ${layout.stoneRadius * 0.86}px Segoe UI, sans-serif`;
+    ctx.fillText(String(hint.rank), x, y + layout.stoneRadius * 0.02);
+  }
+  ctx.restore();
+}
 function shouldShowMoveNumber(moveNumber) {
   if (!moveNumber) return false;
   return showAllMoveNumbers || moveNumber > moveCounter - 2;
@@ -2553,8 +2691,26 @@ aiStrengthPanel.querySelectorAll("[data-ai-strength]").forEach((button) => {
   button.addEventListener("click", () => {
     aiStrength = button.dataset.aiStrength;
     setStatus(`AI 強度已切換為 ${AI_STRENGTHS[aiStrength].label}。`);
+    clearAiHints();
     render();
+    refreshAiHints();
     scheduleAiMove();
+  });
+});
+if (aiHintToggle) {
+  aiHintToggle.addEventListener("click", () => {
+    aiHintsEnabled = !aiHintsEnabled;
+    if (!aiHintsEnabled) clearAiHints();
+    render();
+    refreshAiHints();
+  });
+}
+aiStrengthPanel.querySelectorAll("[data-ai-hint-count]").forEach((button) => {
+  button.addEventListener("click", () => {
+    aiHintCount = Number(button.dataset.aiHintCount) || 1;
+    clearAiHints();
+    render();
+    refreshAiHints();
   });
 });
 cancelDialogBtn.addEventListener("click", () => {

@@ -99,6 +99,14 @@
             <button data-ai-strength="max">最高</button>
           </div>
           <p id="aiDifficultyText" class="ai-difficulty-note">低：較適合新手，AI 會比較放鬆。</p>
+          <div class="ai-hint-panel">
+            <button id="aiHintToggle" class="wide" aria-pressed="false">AI 提示：關</button>
+            <div class="ai-hint-count" role="group" aria-label="AI 提示數量">
+              <button data-ai-hint-count="1" class="active">提示 1 點</button>
+              <button data-ai-hint-count="2">提示 2 點</button>
+            </div>
+            <p id="aiHintText" class="ai-hint-note">打開後，輪到你時會在棋盤上標出建議點。</p>
+          </div>
         </div>
 
         <div class="score-grid">
