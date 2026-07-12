@@ -32,6 +32,8 @@ const aiStrengthPanel = document.querySelector("#aiStrengthPanel");
 const aiModelStatus = document.querySelector("#aiModelStatus");
 const aiDifficultyText = document.querySelector("#aiDifficultyText");
 const aiHintToggle = document.querySelector("#aiHintToggle");
+const aiHintCountControls = document.querySelector("#aiHintCountControls");
+const aiHintFixedNote = document.querySelector("#aiHintFixedNote");
 const aiHintText = document.querySelector("#aiHintText");
 const startScreen = document.querySelector("#startScreen");
 const gameShell = document.querySelector("#gameShell");
@@ -101,7 +103,8 @@ let pendingConfirmAction = null;
 let pendingCancelAction = null;
 let aiStrength = "low";
 let aiHintsEnabled = false;
-const AI_HINT_COUNT = 2;
+let aiHintCount = 1;
+const ONLINE_AI_HINT_COUNT = 2;
 let aiHints = [];
 let aiHintLoading = false;
 let currentFinishedGameId = null;
@@ -412,6 +415,10 @@ function currentAiHintColor() {
   return null;
 }
 
+function effectiveAiHintCount() {
+  return onlineAiHintsEnabled ? ONLINE_AI_HINT_COUNT : aiHintCount;
+}
+
 function canShowAiHints() {
   return aiHintsEnabled
     && currentAiHintColor()
@@ -451,7 +458,7 @@ async function refreshAiHints() {
     }
     const inference = await runV4Inference(board, hintColor);
     if (snapshot !== boardKey() || hintTurn !== turn || hintColor !== currentAiHintColor() || !canShowAiHints()) return;
-    aiHints = rankV4Moves(legalMoves, inference.policy).slice(0, AI_HINT_COUNT).map((move, index) => ({
+    aiHints = rankV4Moves(legalMoves, inference.policy).slice(0, effectiveAiHintCount()).map((move, index) => ({
       key: move.key,
       label: labelOfKey(move.key),
       rank: index + 1,
@@ -471,6 +478,11 @@ function renderAiHintControls(message = null) {
   if (!aiHintToggle) return;
   aiHintToggle.setAttribute("aria-pressed", String(aiHintsEnabled));
   aiHintToggle.textContent = aiHintsEnabled ? "AI 提示：開" : "AI 提示：關";
+  if (aiHintCountControls) aiHintCountControls.classList.toggle("is-hidden", onlineAiHintsEnabled);
+  if (aiHintFixedNote) aiHintFixedNote.classList.toggle("is-hidden", !onlineAiHintsEnabled);
+  aiStrengthPanel.querySelectorAll("[data-ai-hint-count]").forEach((button) => {
+    button.classList.toggle("active", Number(button.dataset.aiHintCount) === aiHintCount);
+  });
   if (!aiHintText) return;
   if (message) {
     aiHintText.textContent = message;
@@ -2729,6 +2741,15 @@ if (aiHintToggle) {
     refreshAiHints();
   });
 }
+aiStrengthPanel.querySelectorAll("[data-ai-hint-count]").forEach((button) => {
+  button.addEventListener("click", () => {
+    if (onlineAiHintsEnabled) return;
+    aiHintCount = Number(button.dataset.aiHintCount) || 1;
+    clearAiHints();
+    render();
+    refreshAiHints();
+  });
+});
 cancelDialogBtn.addEventListener("click", () => {
   const action = pendingCancelAction;
   hideConfirmDialog();
