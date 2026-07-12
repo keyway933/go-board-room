@@ -8,18 +8,29 @@ const POLL_MS = 1200;
 const tickets = new Map();
 const waitingByKey = new Map();
 
-function sendJson(res, status, data) {
-  const body = JSON.stringify(data);
-  res.writeHead(status, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Content-Length": Buffer.byteLength(body),
+function corsHeaders(extra = {}) {
+  return {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Allow-Private-Network": "true",
     "Cache-Control": "no-store",
-  });
+    ...extra,
+  };
+}
+
+function sendJson(res, status, data) {
+  const body = JSON.stringify(data);
+  res.writeHead(status, corsHeaders({
+    "Content-Type": "application/json; charset=utf-8",
+    "Content-Length": Buffer.byteLength(body),
+  }));
   res.end(body);
+}
+
+function sendOptions(res) {
+  res.writeHead(204, corsHeaders());
+  res.end();
 }
 
 function readJson(req) {
@@ -154,7 +165,7 @@ async function handleCancel(req, res) {
 }
 
 const server = http.createServer(async (req, res) => {
-  if (req.method === "OPTIONS") return sendJson(res, 204, {});
+  if (req.method === "OPTIONS") return sendOptions(res);
   try {
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
     if (req.method === "GET" && url.pathname === "/health") {

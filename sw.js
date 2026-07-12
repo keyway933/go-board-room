@@ -1,4 +1,4 @@
-const CACHE_NAME = "go-board-room-v14-match-server";
+const CACHE_NAME = "go-board-room-v15-peer-match";
 const ASSETS = [
   "./",
   "./index.html",

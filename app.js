@@ -2486,6 +2486,19 @@ function boardModeFromLobby(boardName) {
   return "square";
 }
 
+function simpleHashText(text) {
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36).toUpperCase();
+}
+
+function lobbyMatchRoom(settings) {
+  const bucket = Math.floor(Date.now() / 120000);
+  return normalizeRoomCode(`M${simpleHashText(`${settings.board}-${settings.size}-${settings.assist}-${settings.rank}-${bucket}`)}`);
+}
 function onlineOptionsFromLobbySettings(settings) {
   return {
     mode: boardModeFromLobby(settings.board),
@@ -2577,6 +2590,36 @@ function pollMatchmaking(ticketId) {
   }, 1200);
 }
 
+async function startPeerRendezvousMatchmaking(settings = getLobbySettings()) {
+  const boardText = LOBBY_LABELS.board[settings.board] || "標準";
+  const assistText = LOBBY_LABELS.assist[settings.assist] || "一般對局";
+  const room = lobbyMatchRoom(settings);
+  const withAiHint = settings.assist === "on";
+  const options = onlineOptionsFromLobbySettings(settings);
+  setLobbyWaitingState(true, `正在進入配對：${boardText} ${settings.size} 路，${assistText}。`);
+
+  try {
+    const Peer = await loadPeerJs();
+    const knownPeerIds = await listPeerIds(Peer);
+    if (knownPeerIds.includes(onlinePeerId(room))) {
+      await startOnlineGuest(room, withAiHint, options);
+      return;
+    }
+    const joined = await tryJoinPeerMatch(Peer, room, withAiHint, options);
+    if (joined) return;
+    await startOnlineHost(withAiHint, { room, ...options });
+    setStatus(`配對中：${boardText} ${settings.size} 路。另一位玩家選一樣條件，就會加入這局。`);
+  } catch (error) {
+    console.error("peer matchmaking failed", error);
+    showConfirmDialog({
+      title: "配對連線載入失敗",
+      message: "目前無法載入配對連線服務。你仍然可以先用好友約戰。",
+      confirmText: "好友約戰",
+      cancelText: "先不要",
+      onConfirm: startLobbyFriendlyRoom,
+    });
+  }
+}
 async function startMatchmaking() {
   if (matchmakingState.active) {
     await cancelMatchmaking();
@@ -2599,9 +2642,15 @@ async function startMatchmaking() {
     clearMatchPolling();
     matchmakingState.ticketId = null;
     setLobbyWaitingState(false);
+    const isLocalPage = ["localhost", "127.0.0.1", ""].includes(window.location.hostname) || window.location.protocol === "file:";
+    if (isLocalPage) {
+      setLobbyWaitingState(true, "本機配對伺服器未連線，改用瀏覽器配對中。");
+      await startPeerRendezvousMatchmaking(settings);
+      return;
+    }
     showConfirmDialog({
-      title: "配對伺服器未啟動",
-      message: `目前連不到 ${getMatchServerUrl()}。若要測試公開配對，先在這台電腦執行 match-server.js；現在也可以先用好友約戰。`,
+      title: "公開配對伺服器尚未上線",
+      message: "網址沒有錯，也不是你擋到權限。現在 GitHub Pages 只能放靜態網頁，不能常駐配對伺服器；公開陌生配對需要再部署一個線上後端。現在可以先用好友約戰。",
       confirmText: "好友約戰",
       cancelText: "先不要",
       onConfirm: startLobbyFriendlyRoom,
@@ -2657,6 +2706,84 @@ function normalizeRoomCode(value) {
 
 function onlinePeerId(room) {
   return `${ONLINE_ROOM_PREFIX}${room.toLowerCase()}`;
+}
+
+function peerOptions() {
+  return {
+    debug: 1,
+    config: { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] },
+  };
+}
+
+function listPeerIds(Peer) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let probe = null;
+    const finish = (items = []) => {
+      if (settled) return;
+      settled = true;
+      try { probe?.destroy(); } catch {}
+      resolve(Array.isArray(items) ? items : []);
+    };
+    probe = new Peer(undefined, peerOptions());
+    const timer = window.setTimeout(() => finish([]), 2500);
+    probe.on("open", () => {
+      if (typeof probe.listAllPeers !== "function") {
+        window.clearTimeout(timer);
+        finish([]);
+        return;
+      }
+      probe.listAllPeers((items) => {
+        window.clearTimeout(timer);
+        finish(items);
+      });
+    });
+    probe.on("error", () => {
+      window.clearTimeout(timer);
+      finish([]);
+    });
+  });
+}
+
+function prepareOnlineBoard(role, color, room, withAiHint, options, extra = "") {
+  resetOnlineConnection();
+  playMode = "online";
+  onlineAiHintsEnabled = Boolean(withAiHint);
+  aiHintsEnabled = Boolean(withAiHint);
+  onlineState.role = role;
+  onlineState.color = color;
+  onlineState.room = room;
+  startScreen.classList.add("is-hidden");
+  gameShell.classList.remove("is-hidden");
+  resetGame(options.mode || "square", Number(options.size) || 19);
+  updateOnlineStatus(extra);
+}
+
+function tryJoinPeerMatch(Peer, room, withAiHint, options) {
+  return new Promise((resolve) => {
+    let settled = false;
+    prepareOnlineBoard("guest", WHITE, room, withAiHint, options, "尋找對手");
+    const finish = (joined) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      if (!joined) resetOnlineConnection();
+      resolve(joined);
+    };
+    const timer = window.setTimeout(() => finish(false), 8000);
+    const peer = new Peer(undefined, peerOptions());
+    onlineState.peer = peer;
+    peer.on("open", () => {
+      const conn = peer.connect(onlinePeerId(room), { reliable: true });
+      attachOnlineConnection(conn);
+      conn.on("open", () => finish(true));
+      conn.on("error", () => finish(false));
+      conn.on("close", () => {
+        if (!onlineState.connected) finish(false);
+      });
+    });
+    peer.on("error", () => finish(false));
+  });
 }
 
 function resetOnlineConnection() {
@@ -2808,10 +2935,7 @@ async function startOnlineHost(withAiHint = false, options = {}) {
 
   try {
     const Peer = await loadPeerJs();
-    const peer = new Peer(onlinePeerId(onlineState.room), {
-      debug: 1,
-      config: { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] },
-    });
+    const peer = new Peer(onlinePeerId(onlineState.room), peerOptions());
     onlineState.peer = peer;
     peer.on("open", () => {
       const url = copyOnlineShareUrl(onlineState.room);
@@ -2851,10 +2975,7 @@ async function startOnlineGuest(roomCode, withAiHint = false, options = {}) {
 
   try {
     const Peer = await loadPeerJs();
-    const peer = new Peer(undefined, {
-      debug: 1,
-      config: { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] },
-    });
+    const peer = new Peer(undefined, peerOptions());
     onlineState.peer = peer;
     peer.on("open", () => {
       const conn = peer.connect(onlinePeerId(room), { reliable: true });
