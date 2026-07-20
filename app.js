@@ -65,8 +65,8 @@ const GAME_HISTORY_LIMIT = 60;
 const GAME_HISTORY_COLLAPSED_COUNT = 6;
 const LETTERS = "ABCDEFGHJKLMNOPQRST";
 const BOPOMOFO = ["ㄅ", "ㄆ", "ㄇ", "ㄈ", "ㄉ", "ㄊ", "ㄋ", "ㄌ", "ㄍ", "ㄎ", "ㄏ", "ㄐ", "ㄑ", "ㄒ", "ㄓ", "ㄔ", "ㄕ", "ㄖ", "ㄗ"];
-const V4_MODEL_NAME = "V4-SGF";
-const V4_MODEL_URL = "./models/v4-sgf-web.onnx";
+const V4_MODEL_NAME = "V6-Value/Tactical";
+const V4_MODEL_URL = "./models/v6-value-tactical-web.onnx";
 const V4_RUNTIME_PATH = "./vendor/onnxruntime/";
 const V4_MODEL_TIMEOUT_MS = 30000;
 const V4_INFERENCE_TIMEOUT_MS = 8000;
@@ -201,7 +201,7 @@ function withTimeout(promise, timeoutMs, label) {
 }
 
 function hasNativeV4Bridge() {
-  return typeof window.GoAiBridge !== "undefined";
+  return false;
 }
 
 window.__setNativeV4State = (ready, message) => {
@@ -298,9 +298,15 @@ function prepareV4Model() {
 
 function encodeV4Features(source, perspective) {
   const area = 19 * 19;
-  const features = new Float32Array(5 * area);
+  const features = new Float32Array(14 * area);
   const enemy = opponent(perspective);
   const toPlayValue = turn === perspective ? 1 : 0;
+
+  const previousMoveKey = (() => {
+    const previousNumber = moveCounter - 1;
+    if (previousNumber <= 0) return null;
+    return Object.keys(moveNumbers).find((key) => moveNumbers[key] === previousNumber) || null;
+  })();
 
   for (let y = 0; y < 19; y++) {
     for (let x = 0; x < 19; x++) {
@@ -309,10 +315,36 @@ function encodeV4Features(source, perspective) {
       if (cell === perspective) features[index] = 1;
       if (cell === enemy) features[area + index] = 1;
       features[area * 2 + index] = toPlayValue;
-      features[area * 3 + index] = x / 18;
-      features[area * 4 + index] = y / 18;
+      features[area * 12 + index] = x / 18;
+      features[area * 13 + index] = y / 18;
     }
   }
+
+  const visited = new Set();
+  for (const point of points) {
+    const cell = source[point.key];
+    if (cell !== BLACK && cell !== WHITE) continue;
+    if (visited.has(point.key)) continue;
+    const group = getGroup(source, point.key);
+    group.stones.forEach((key) => visited.add(key));
+    const base = cell === perspective ? 3 : 6;
+    const libertyCount = group.liberties.size;
+    const plane = libertyCount <= 1 ? base : libertyCount === 2 ? base + 1 : base + 2;
+    for (const stoneKey of group.stones) {
+      const { a: x, b: y } = parseKey(stoneKey);
+      features[area * plane + y * 19 + x] = 1;
+    }
+  }
+
+  if (lastMoveKey) {
+    const { a: x, b: y } = parseKey(lastMoveKey);
+    features[area * 10 + y * 19 + x] = 1;
+  }
+  if (previousMoveKey) {
+    const { a: x, b: y } = parseKey(previousMoveKey);
+    features[area * 11 + y * 19 + x] = 1;
+  }
+
   return features;
 }
 
@@ -332,7 +364,7 @@ async function runV4Inference(source, perspective) {
     value = Number(outputs.value);
   } else {
     const session = await withTimeout(prepareV4Model(), V4_MODEL_TIMEOUT_MS, "V4-SGF 模型載入");
-    const tensor = new window.ort.Tensor("float32", features, [1, 5, 19, 19]);
+    const tensor = new window.ort.Tensor("float32", features, [1, 14, 19, 19]);
     const outputs = await withTimeout(
       session.run({ features: tensor }),
       V4_INFERENCE_TIMEOUT_MS,
