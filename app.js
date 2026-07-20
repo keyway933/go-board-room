@@ -459,8 +459,12 @@ function currentAiHintColor() {
   return null;
 }
 
+function usesFixedTwoAiHints() {
+  return playMode === "traditional" || onlineAiHintsEnabled;
+}
+
 function effectiveAiHintCount() {
-  return onlineAiHintsEnabled ? ONLINE_AI_HINT_COUNT : aiHintCount;
+  return usesFixedTwoAiHints() ? ONLINE_AI_HINT_COUNT : aiHintCount;
 }
 
 function canShowAiHints() {
@@ -523,10 +527,10 @@ function renderAiHintControls(message = null) {
   aiHintToggle.setAttribute("aria-pressed", String(aiHintsEnabled));
   aiHintToggle.textContent = aiHintsEnabled ? "AI 提示：開" : "AI 提示：關";
   if (aiHintCountControls) {
-    aiHintCountControls.classList.toggle("is-hidden", onlineAiHintsEnabled);
-    aiHintCountControls.setAttribute("aria-disabled", String(onlineAiHintsEnabled));
+    aiHintCountControls.classList.toggle("is-hidden", usesFixedTwoAiHints());
+    aiHintCountControls.setAttribute("aria-disabled", String(usesFixedTwoAiHints()));
   }
-  if (aiHintFixedNote) aiHintFixedNote.classList.toggle("is-hidden", !onlineAiHintsEnabled);
+  if (aiHintFixedNote) aiHintFixedNote.classList.toggle("is-hidden", !usesFixedTwoAiHints());
   aiStrengthPanel.querySelectorAll("[data-ai-hint-count]").forEach((button) => {
     button.classList.toggle("active", Number(button.dataset.aiHintCount) === aiHintCount);
   });
@@ -534,7 +538,7 @@ function renderAiHintControls(message = null) {
   if (message) {
     aiHintText.textContent = message;
   } else if (!aiHintsEnabled) {
-    aiHintText.textContent = "打開後，輪到你時會在棋盤上標出建議點。";
+    aiHintText.textContent = usesFixedTwoAiHints() ? "打開後，輪到你時會標出 2 個建議點。" : "打開後，輪到你時會在棋盤上標出建議點。";
   } else if (!isV4PositionSupported()) {
     aiHintText.textContent = "目前提示只支援標準 19 路棋盤。";
   } else if (isOnlinePlayMode() && onlineAiHintsEnabled && !onlineState.connected) {
@@ -585,7 +589,7 @@ function opponent(color) {
 function startGame(nextPlayMode) {
   playMode = nextPlayMode;
   onlineAiHintsEnabled = false;
-  if (playMode === "online") aiHintsEnabled = false;
+  if (playMode !== "ai") aiHintsEnabled = false;
   aiThinking = false;
   startScreen.classList.add("is-hidden");
   gameShell.classList.remove("is-hidden");
@@ -2789,7 +2793,7 @@ function prepareOnlineBoard(role, color, room, withAiHint, options, extra = "") 
   resetOnlineConnection();
   playMode = "online";
   onlineAiHintsEnabled = Boolean(withAiHint);
-  aiHintsEnabled = Boolean(withAiHint);
+  aiHintsEnabled = false;
   onlineState.role = role;
   onlineState.color = color;
   onlineState.room = room;
@@ -2964,7 +2968,7 @@ async function startOnlineHost(withAiHint = false, options = {}) {
   resetOnlineConnection();
   playMode = "online";
   onlineAiHintsEnabled = Boolean(withAiHint);
-  aiHintsEnabled = Boolean(withAiHint);
+  aiHintsEnabled = false;
   onlineState.role = "host";
   onlineState.color = BLACK;
   onlineState.room = normalizeRoomCode(options.room) || makeRoomCode();
@@ -3004,7 +3008,7 @@ async function startOnlineGuest(roomCode, withAiHint = false, options = {}) {
   resetOnlineConnection();
   playMode = "online";
   onlineAiHintsEnabled = Boolean(withAiHint);
-  aiHintsEnabled = Boolean(withAiHint);
+  aiHintsEnabled = false;
   onlineState.role = "guest";
   onlineState.color = WHITE;
   onlineState.room = room;
@@ -3119,7 +3123,7 @@ if (aiHintToggle) {
 if (aiHintCountControls) {
   aiHintCountControls.addEventListener("click", (event) => {
     const button = event.target.closest("[data-ai-hint-count]");
-    if (!button || onlineAiHintsEnabled) return;
+    if (!button || usesFixedTwoAiHints()) return;
     aiHintCount = Number(button.dataset.aiHintCount) || 1;
     clearAiHints();
     render();
