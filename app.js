@@ -449,10 +449,11 @@ function isOnlinePlayMode() {
 }
 
 function isAiHintPlayMode() {
-  return playMode === "ai" || (isOnlinePlayMode() && onlineAiHintsEnabled);
+  return playMode === "traditional" || playMode === "ai" || (isOnlinePlayMode() && onlineAiHintsEnabled);
 }
 
 function currentAiHintColor() {
+  if (playMode === "traditional") return turn;
   if (playMode === "ai") return BLACK;
   if (isOnlinePlayMode() && onlineAiHintsEnabled && onlineState.connected && onlineState.color && turn === onlineState.color) return turn;
   return null;
@@ -584,7 +585,7 @@ function opponent(color) {
 function startGame(nextPlayMode) {
   playMode = nextPlayMode;
   onlineAiHintsEnabled = false;
-  if (playMode !== "ai") aiHintsEnabled = false;
+  if (playMode === "online") aiHintsEnabled = false;
   aiThinking = false;
   startScreen.classList.add("is-hidden");
   gameShell.classList.remove("is-hidden");
@@ -598,7 +599,7 @@ function startGame(nextPlayMode) {
       renderAiStrength();
     }).catch(() => renderAiStrength());
   } else {
-    setStatus("傳統下棋：黑棋先下。");
+    setStatus("傳統下棋：黑棋先下，可開啟 AI 提示輔助。");
   }
   render();
 }
@@ -2292,7 +2293,7 @@ function renderWinrate() {
 }
 
 function renderAiStrength() {
-  aiStrengthPanel.classList.toggle("is-hidden", playMode !== "ai" && !onlineAiHintsEnabled);
+  aiStrengthPanel.classList.toggle("is-hidden", playMode === "online" && !onlineAiHintsEnabled);
   if (aiModelStatus) aiModelStatus.textContent = v4ModelMessage;
   const strength = AI_STRENGTHS[aiStrength] || AI_STRENGTHS.low;
   if (aiDifficultyText) aiDifficultyText.textContent = strength.note;
