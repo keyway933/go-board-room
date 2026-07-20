@@ -1,4 +1,4 @@
-﻿const CACHE_NAME = "go-board-room-v18-v6-value-tactical";
+const CACHE_NAME = "go-board-room-v19-v6-value-tactical-labels";
 const ASSETS = [
   "./",
   "./index.html",
