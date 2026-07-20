@@ -32,6 +32,9 @@ const aiStrengthPanel = document.querySelector("#aiStrengthPanel");
 const aiModelStatus = document.querySelector("#aiModelStatus");
 const aiDifficultyText = document.querySelector("#aiDifficultyText");
 const aiHintToggle = document.querySelector("#aiHintToggle");
+const colorAiHintToggles = document.querySelector("#colorAiHintToggles");
+const blackAiHintToggle = document.querySelector("#blackAiHintToggle");
+const whiteAiHintToggle = document.querySelector("#whiteAiHintToggle");
 const aiHintCountControls = document.querySelector("#aiHintCountControls");
 const aiHintFixedNote = document.querySelector("#aiHintFixedNote");
 const aiHintText = document.querySelector("#aiHintText");
@@ -113,6 +116,8 @@ let pendingConfirmAction = null;
 let pendingCancelAction = null;
 let aiStrength = "low";
 let aiHintsEnabled = false;
+let blackAiHintsEnabled = false;
+let whiteAiHintsEnabled = false;
 let aiHintCount = 1;
 const ONLINE_AI_HINT_COUNT = 2;
 let aiHints = [];
@@ -452,8 +457,17 @@ function isAiHintPlayMode() {
   return playMode === "traditional" || playMode === "ai" || (isOnlinePlayMode() && onlineAiHintsEnabled);
 }
 
+function colorAiHintEnabled(color) {
+  return color === BLACK ? blackAiHintsEnabled : whiteAiHintsEnabled;
+}
+
+function currentAiHintEnabled() {
+  if (playMode === "traditional") return colorAiHintEnabled(turn);
+  return aiHintsEnabled;
+}
+
 function currentAiHintColor() {
-  if (playMode === "traditional") return turn;
+  if (playMode === "traditional") return colorAiHintEnabled(turn) ? turn : null;
   if (playMode === "ai") return BLACK;
   if (isOnlinePlayMode() && onlineAiHintsEnabled && onlineState.connected && onlineState.color && turn === onlineState.color) return turn;
   return null;
@@ -468,7 +482,7 @@ function effectiveAiHintCount() {
 }
 
 function canShowAiHints() {
-  return aiHintsEnabled
+  return currentAiHintEnabled()
     && currentAiHintColor()
     && !gameOver
     && !deadStoneMode
@@ -477,7 +491,7 @@ function canShowAiHints() {
 }
 
 async function refreshAiHints() {
-  if (!aiHintsEnabled) {
+  if (!currentAiHintEnabled()) {
     clearAiHints();
     renderAiHintControls();
     return;
@@ -524,8 +538,19 @@ async function refreshAiHints() {
 
 function renderAiHintControls(message = null) {
   if (!aiHintToggle) return;
+  const isTraditionalMode = playMode === "traditional";
+  aiHintToggle.classList.toggle("is-hidden", isTraditionalMode);
   aiHintToggle.setAttribute("aria-pressed", String(aiHintsEnabled));
   aiHintToggle.textContent = aiHintsEnabled ? "AI 提示：開" : "AI 提示：關";
+  if (colorAiHintToggles) colorAiHintToggles.classList.toggle("is-hidden", !isTraditionalMode);
+  if (blackAiHintToggle) {
+    blackAiHintToggle.setAttribute("aria-pressed", String(blackAiHintsEnabled));
+    blackAiHintToggle.textContent = blackAiHintsEnabled ? "黑 AI 提示：開" : "黑 AI 提示：關";
+  }
+  if (whiteAiHintToggle) {
+    whiteAiHintToggle.setAttribute("aria-pressed", String(whiteAiHintsEnabled));
+    whiteAiHintToggle.textContent = whiteAiHintsEnabled ? "白 AI 提示：開" : "白 AI 提示：關";
+  }
   if (aiHintCountControls) {
     aiHintCountControls.classList.toggle("is-hidden", usesFixedTwoAiHints());
     aiHintCountControls.setAttribute("aria-disabled", String(usesFixedTwoAiHints()));
@@ -537,8 +562,10 @@ function renderAiHintControls(message = null) {
   if (!aiHintText) return;
   if (message) {
     aiHintText.textContent = message;
-  } else if (!aiHintsEnabled) {
-    aiHintText.textContent = usesFixedTwoAiHints() ? "打開後，輪到你時會標出 2 個建議點。" : "打開後，輪到你時會在棋盤上標出建議點。";
+  } else if (isTraditionalMode && !blackAiHintsEnabled && !whiteAiHintsEnabled) {
+    aiHintText.textContent = "黑白可各自開啟 AI 提示；開啟方輪到自己時會標出 2 個建議點。";
+  } else if (!currentAiHintEnabled()) {
+    aiHintText.textContent = isTraditionalMode ? `目前輪到${colorName(turn)}，這一方尚未開啟 AI 提示。` : (usesFixedTwoAiHints() ? "打開後，輪到你時會標出 2 個建議點。" : "打開後，輪到你時會在棋盤上標出建議點。");
   } else if (!isV4PositionSupported()) {
     aiHintText.textContent = "目前提示只支援標準 19 路棋盤。";
   } else if (isOnlinePlayMode() && onlineAiHintsEnabled && !onlineState.connected) {
@@ -548,7 +575,7 @@ function renderAiHintControls(message = null) {
   } else if (aiHints.length) {
     aiHintText.textContent = aiHints.map((hint) => hint.label).join("　");
   } else {
-    aiHintText.textContent = "輪到你時會在棋盤上標出建議點。";
+    aiHintText.textContent = aiHintLoading ? "AI 正在看棋盤..." : "輪到你時會在棋盤上標出建議點。";
   }
 }
 async function findV4Move() {
@@ -590,6 +617,8 @@ function startGame(nextPlayMode) {
   playMode = nextPlayMode;
   onlineAiHintsEnabled = false;
   if (playMode !== "ai") aiHintsEnabled = false;
+  blackAiHintsEnabled = false;
+  whiteAiHintsEnabled = false;
   aiThinking = false;
   startScreen.classList.add("is-hidden");
   gameShell.classList.remove("is-hidden");
@@ -2070,7 +2099,7 @@ function drawStones() {
 
 
 function drawAiHints() {
-  if (!aiHintsEnabled || !aiHints.length || !isAiHintPlayMode() || !currentAiHintColor()) return;
+  if (!currentAiHintEnabled() || !aiHints.length || !isAiHintPlayMode() || !currentAiHintColor()) return;
   ctx.save();
   for (const hint of aiHints) {
     if (board[hint.key] !== EMPTY) continue;
@@ -3116,6 +3145,22 @@ if (aiHintToggle) {
   aiHintToggle.addEventListener("click", () => {
     aiHintsEnabled = !aiHintsEnabled;
     if (!aiHintsEnabled) clearAiHints();
+    render();
+    refreshAiHints();
+  });
+}
+if (blackAiHintToggle) {
+  blackAiHintToggle.addEventListener("click", () => {
+    blackAiHintsEnabled = !blackAiHintsEnabled;
+    if (turn === BLACK) clearAiHints();
+    render();
+    refreshAiHints();
+  });
+}
+if (whiteAiHintToggle) {
+  whiteAiHintToggle.addEventListener("click", () => {
+    whiteAiHintsEnabled = !whiteAiHintsEnabled;
+    if (turn === WHITE) clearAiHints();
     render();
     refreshAiHints();
   });
