@@ -1426,7 +1426,7 @@ function tryPlay(key, fromAi = false) {
   sendOnlineState("move");
   updateOnlineStatus();
   scheduleAiMove();
-  if (fromAi) refreshAiHints();
+  if (playMode !== "ai" || fromAi) refreshAiHints();
 }
 
 function removeDeadGroup(key) {
@@ -1480,6 +1480,7 @@ function passTurn() {
   sendOnlineState("pass");
   updateOnlineStatus();
   scheduleAiMove();
+  if (playMode !== "ai") refreshAiHints();
 }
 
 function undo() {

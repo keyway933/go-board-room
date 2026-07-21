@@ -1,4 +1,4 @@
-const CACHE_NAME = "go-board-room-v22-color-ai-hint-toggles";
+const CACHE_NAME = "go-board-room-v23-refresh-color-ai-hints";
 const ASSETS = [
   "./",
   "./index.html",
