@@ -444,17 +444,17 @@ h3 {
   grid-row: 1;
 }
 
-.result-panel {
+.rules-note {
   grid-column: 1;
   grid-row: 1;
 }
 
-.rules-note {
+.move-log {
   grid-column: 1;
   grid-row: 2;
 }
 
-.move-log {
+.result-panel {
   grid-column: 1;
   grid-row: 3;
 }
