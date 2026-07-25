@@ -2107,7 +2107,7 @@ function drawTerritoryMarks() {
     if (owner === EMPTY || (board[point.key] !== EMPTY && !deadMap[point.key])) continue;
     const { x, y } = pointToPixel(point);
     const side = owner === NEUTRAL ? layout.markSide * 0.75 : layout.markSide;
-    ctx.fillStyle = owner === BLACK ? "rgba(18, 22, 28, 0.7)" : owner === WHITE ? "rgba(255, 255, 255, 0.9)" : "rgba(86, 96, 108, 0.38)";
+    ctx.fillStyle = owner === BLACK ? "rgba(18, 22, 28, 0.7)" : owner === WHITE ? "rgba(255, 255, 255, 0.9)" : "rgba(204, 48, 48, 0.78)";
     ctx.fillRect(x - side / 2, y - side / 2, side, side);
     ctx.strokeStyle = "rgba(55, 35, 16, 0.35)";
     ctx.lineWidth = Math.max(1, (mode === "square" ? layout.gap : layout.scale) * 0.025);
