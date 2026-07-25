@@ -31,6 +31,8 @@ const moveNumberToggle = document.querySelector("#moveNumberToggle");
 const aiStrengthPanel = document.querySelector("#aiStrengthPanel");
 const aiModelStatus = document.querySelector("#aiModelStatus");
 const aiDifficultyText = document.querySelector("#aiDifficultyText");
+const generalAiStrengthControls = document.querySelector("#generalAiStrengthControls");
+const colorAiStrengthControls = document.querySelector("#colorAiStrengthControls");
 const aiHintToggle = document.querySelector("#aiHintToggle");
 const colorAiHintToggles = document.querySelector("#colorAiHintToggles");
 const blackAiHintToggle = document.querySelector("#blackAiHintToggle");
@@ -115,6 +117,8 @@ let aiThinking = false;
 let pendingConfirmAction = null;
 let pendingCancelAction = null;
 let aiStrength = "low";
+let blackAiStrength = "low";
+let whiteAiStrength = "max";
 let aiHintsEnabled = false;
 let blackAiHintsEnabled = false;
 let whiteAiHintsEnabled = false;
@@ -404,15 +408,19 @@ function chooseWeightedMove(candidates, temperature) {
   return candidates[candidates.length - 1].move;
 }
 
-function selectV4MoveByDifficulty(legalMoves, policy) {
-  const strength = AI_STRENGTHS[aiStrength] || AI_STRENGTHS.low;
-  const ratedMoves = legalMoves
+function ratedV4Moves(legalMoves, policy) {
+  return legalMoves
     .map((move) => {
       const { a: x, b: y } = parseKey(move.key);
       return { move, logit: Number(policy[y * 19 + x]) };
     })
     .filter((item) => Number.isFinite(item.logit))
     .sort((left, right) => right.logit - left.logit);
+}
+
+function selectV4MoveByDifficulty(legalMoves, policy, strengthKey = aiStrength) {
+  const strength = AI_STRENGTHS[strengthKey] || AI_STRENGTHS.low;
+  const ratedMoves = ratedV4Moves(legalMoves, policy);
 
   if (!ratedMoves.length) return null;
   if (strength.v4BlunderRate && Math.random() < strength.v4BlunderRate) {
@@ -424,6 +432,27 @@ function selectV4MoveByDifficulty(legalMoves, policy) {
 
   const topN = Math.max(1, Math.min(strength.v4TopN, ratedMoves.length));
   return chooseWeightedMove(ratedMoves.slice(0, topN), strength.v4Temperature);
+}
+
+function chooseV4HintsByDifficulty(legalMoves, policy, strengthKey, count) {
+  const selected = [];
+  const selectedKeys = new Set();
+  const ranked = rankV4Moves(legalMoves, policy);
+  let pool = legalMoves.slice();
+  while (selected.length < count && pool.length) {
+    const move = selectV4MoveByDifficulty(pool, policy, strengthKey);
+    if (!move || selectedKeys.has(move.key)) break;
+    selected.push(move);
+    selectedKeys.add(move.key);
+    pool = pool.filter((item) => item.key !== move.key);
+  }
+  for (const move of ranked) {
+    if (selected.length >= count) break;
+    if (selectedKeys.has(move.key)) continue;
+    selected.push(move);
+    selectedKeys.add(move.key);
+  }
+  return selected;
 }
 
 
@@ -473,6 +502,17 @@ function currentAiHintColor() {
   return null;
 }
 
+function aiStrengthForColor(color) {
+  if (color === BLACK) return blackAiStrength;
+  if (color === WHITE) return whiteAiStrength;
+  return aiStrength;
+}
+
+function currentAiHintStrength() {
+  if (playMode === "traditional") return aiStrengthForColor(turn);
+  return aiStrength;
+}
+
 function usesFixedTwoAiHints() {
   return playMode === "traditional" || onlineAiHintsEnabled;
 }
@@ -520,7 +560,7 @@ async function refreshAiHints() {
     }
     const inference = await runV4Inference(board, hintColor);
     if (snapshot !== boardKey() || hintTurn !== turn || hintColor !== currentAiHintColor() || !canShowAiHints()) return;
-    aiHints = rankV4Moves(legalMoves, inference.policy).slice(0, effectiveAiHintCount()).map((move, index) => ({
+    aiHints = chooseV4HintsByDifficulty(legalMoves, inference.policy, currentAiHintStrength(), effectiveAiHintCount()).map((move, index) => ({
       key: move.key,
       label: labelOfKey(move.key),
       rank: index + 1,
@@ -2328,11 +2368,29 @@ function renderWinrate() {
 
 function renderAiStrength() {
   aiStrengthPanel.classList.toggle("is-hidden", playMode === "online" && !onlineAiHintsEnabled);
+  const isTraditionalMode = playMode === "traditional";
   if (aiModelStatus) aiModelStatus.textContent = v4ModelMessage;
-  const strength = AI_STRENGTHS[aiStrength] || AI_STRENGTHS.low;
-  if (aiDifficultyText) aiDifficultyText.textContent = strength.note;
+  if (generalAiStrengthControls) generalAiStrengthControls.classList.toggle("is-hidden", isTraditionalMode);
+  if (colorAiStrengthControls) colorAiStrengthControls.classList.toggle("is-hidden", !isTraditionalMode);
+
+  const strengthKey = isTraditionalMode ? aiStrengthForColor(turn) : aiStrength;
+  const strength = AI_STRENGTHS[strengthKey] || AI_STRENGTHS.low;
+  if (aiDifficultyText) {
+    if (isTraditionalMode) {
+      const blackLabel = AI_STRENGTHS[blackAiStrength]?.label || AI_STRENGTHS.low.label;
+      const whiteLabel = AI_STRENGTHS[whiteAiStrength]?.label || AI_STRENGTHS.low.label;
+      aiDifficultyText.textContent = `黑 AI：${blackLabel}，白 AI：${whiteLabel}。目前輪到${colorName(turn)}，使用${strength.label}強度提示。`;
+    } else {
+      aiDifficultyText.textContent = strength.note;
+    }
+  }
   aiStrengthPanel.querySelectorAll("[data-ai-strength]").forEach((button) => {
     button.classList.toggle("active", button.dataset.aiStrength === aiStrength);
+  });
+  aiStrengthPanel.querySelectorAll("[data-color-ai-strength]").forEach((button) => {
+    const [color, value] = button.dataset.colorAiStrength.split(":");
+    const active = color === "black" ? value === blackAiStrength : value === whiteAiStrength;
+    button.classList.toggle("active", active);
   });
 }
 
@@ -3140,6 +3198,19 @@ aiStrengthPanel.querySelectorAll("[data-ai-strength]").forEach((button) => {
     render();
     refreshAiHints();
     scheduleAiMove();
+  });
+});
+aiStrengthPanel.querySelectorAll("[data-color-ai-strength]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const [color, value] = button.dataset.colorAiStrength.split(":");
+    if (!AI_STRENGTHS[value]) return;
+    if (color === "black") blackAiStrength = value;
+    if (color === "white") whiteAiStrength = value;
+    const label = AI_STRENGTHS[value].label;
+    setStatus(`${color === "black" ? "黑" : "白"} AI 強度已切換為 ${label}。`);
+    clearAiHints();
+    render();
+    refreshAiHints();
   });
 });
 if (aiHintToggle) {

@@ -151,11 +151,31 @@
             <strong>V6-Value/Tactical</strong>
             <span id="aiModelStatus">尚未載入</span>
           </div>
-          <div class="ai-difficulty-grid" role="group" aria-label="AI 難度">
+          <div id="generalAiStrengthControls" class="ai-difficulty-grid" role="group" aria-label="AI 難度">
             <button data-ai-strength="low" class="active">低</button>
             <button data-ai-strength="medium">中</button>
             <button data-ai-strength="high">高</button>
             <button data-ai-strength="max">最高</button>
+          </div>
+          <div id="colorAiStrengthControls" class="color-ai-strength-controls is-hidden" aria-label="黑白 AI 難度">
+            <div class="color-ai-strength-row">
+              <span>黑 AI</span>
+              <div class="ai-difficulty-grid" role="group" aria-label="黑 AI 難度">
+                <button data-color-ai-strength="black:low" class="active">低</button>
+                <button data-color-ai-strength="black:medium">中</button>
+                <button data-color-ai-strength="black:high">高</button>
+                <button data-color-ai-strength="black:max">最高</button>
+              </div>
+            </div>
+            <div class="color-ai-strength-row">
+              <span>白 AI</span>
+              <div class="ai-difficulty-grid" role="group" aria-label="白 AI 難度">
+                <button data-color-ai-strength="white:low">低</button>
+                <button data-color-ai-strength="white:medium">中</button>
+                <button data-color-ai-strength="white:high">高</button>
+                <button data-color-ai-strength="white:max" class="active">最高</button>
+              </div>
+            </div>
           </div>
           <p id="aiDifficultyText" class="ai-difficulty-note">低：較適合新手，AI 會比較放鬆。</p>
           <div class="ai-hint-panel">
