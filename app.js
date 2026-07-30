@@ -27,6 +27,9 @@ const rulesText = document.querySelector("#rulesText");
 const deadModeBtn = document.querySelector("#deadModeBtn");
 const scoreBtn = document.querySelector("#scoreBtn");
 const ownershipModeBtn = document.querySelector("#ownershipModeBtn");
+const resignBtn = document.querySelector("#resignBtn");
+const finalConfirmBtn = document.querySelector("#finalConfirmBtn");
+const exportRecordBtn = document.querySelector("#exportRecordBtn");
 const moveNumberToggle = document.querySelector("#moveNumberToggle");
 const aiStrengthPanel = document.querySelector("#aiStrengthPanel");
 const aiModelStatus = document.querySelector("#aiModelStatus");
@@ -107,6 +110,7 @@ let deadStoneMode = false;
 let ownershipMode = false;
 let scoreState = null;
 let scoreVisible = false;
+let resignationState = null;
 let layout = null;
 let torusView = { u: 0, v: 0 };
 let torusDrag = null;
@@ -841,7 +845,7 @@ function compactCells(source) {
 }
 
 function saveFinishedGame() {
-  if (!scoreState || moveCounter === 0) return;
+  if ((!scoreState && !resignationState) || moveCounter === 0) return;
   if (!currentFinishedGameId) currentFinishedGameId = `game-${Date.now()}`;
   const records = loadGameHistoryRecords();
   const existingRecord = records.find((item) => item.id === currentFinishedGameId);
@@ -864,7 +868,13 @@ function saveFinishedGame() {
     previousBoardKey,
     passCount,
     lastMoveKey,
-    score: {
+    score: resignationState ? {
+      type: "resign",
+      winner: resignationState.winner,
+      loser: resignationState.loser,
+      margin: 0,
+    } : {
+      type: "area",
       blackTotal: scoreState.blackTotal,
       whiteTotal: scoreState.whiteTotal,
       whiteWithKomi: scoreState.whiteWithKomi,
@@ -1075,7 +1085,9 @@ function renderGameHistory() {
       if (event.key === "Enter") title.blur();
     });
     const detail = document.createElement("p");
-    detail.textContent = `${formatHistoryTime(record.finishedAt)} · ${record.moves} 手 · ${colorName(record.score.winner)}勝 ${record.score.margin.toFixed(1)} 點`;
+    detail.textContent = record.score?.type === "resign"
+      ? `${formatHistoryTime(record.finishedAt)} · ${record.moves} 手 · ${colorName(record.score.loser)}投降，${colorName(record.score.winner)}勝`
+      : `${formatHistoryTime(record.finishedAt)} · ${record.moves} 手 · ${colorName(record.score.winner)}勝 ${record.score.margin.toFixed(1)} 點`;
     card.append(canvas, title, detail);
     gameHistoryList.append(card);
     drawHistoryPreview(canvas, record);
@@ -1105,6 +1117,7 @@ function pushHistory() {
     ownershipMode,
     scoreState: cloneScoreState(scoreState),
     scoreVisible,
+    resignationState: resignationState ? { ...resignationState } : null,
   });
 }
 
@@ -1125,6 +1138,7 @@ function restore(state) {
   ownershipMode = state.ownershipMode;
   scoreState = cloneScoreState(state.scoreState);
   scoreVisible = Boolean(state.scoreVisible);
+  resignationState = state.resignationState ? { ...state.resignationState } : null;
   render();
 }
 
@@ -1461,6 +1475,7 @@ function tryPlay(key, fromAi = false) {
   passCount = 0;
   scoreState = null;
   scoreVisible = false;
+  resignationState = null;
   setStatus(capturedCount ? `提掉 ${capturedCount} 子，輪到 ${colorName(turn)}。` : `輪到 ${colorName(turn)}。`);
   render();
   sendOnlineState("move");
@@ -1523,7 +1538,68 @@ function passTurn() {
   if (playMode !== "ai") refreshAiHints();
 }
 
+function resignGame() {
+  clearPendingMove();
+  clearAiHints();
+  if (gameOver) {
+    setStatus("棋局已結束。");
+    return;
+  }
+  if (deadStoneMode || ownershipMode) {
+    setStatus("請先離開校正或提死子模式，再投降。");
+    return;
+  }
+  if (playMode === "ai" && turn === WHITE) {
+    setStatus("AI 正在思考，請等白棋行動後再投降。");
+    return;
+  }
+  if (playMode === "online" && !onlineState.applyingRemote) {
+    if (!onlineState.connected) {
+      setStatus("連線房間還沒有接上，等朋友進來後再投降。");
+      return;
+    }
+  }
+  const loser = playMode === "online" && onlineState.color ? onlineState.color : turn;
+  const winner = opponent(loser);
+  pushHistory();
+  resignationState = { loser, winner };
+  gameOver = true;
+  deadStoneMode = false;
+  ownershipMode = false;
+  scoreState = null;
+  scoreVisible = false;
+  log.push(`${colorName(loser)}投降，${colorName(winner)}勝`);
+  saveFinishedGame();
+  setStatus(`${colorName(loser)}投降，${colorName(winner)}勝。`);
+  render();
+  sendOnlineState("resign");
+  updateOnlineStatus();
+}
+
+function requestResign() {
+  clearPendingMove();
+  if (gameOver) {
+    setStatus("棋局已結束。");
+    return;
+  }
+  const loser = playMode === "online" && onlineState.color ? onlineState.color : turn;
+  showConfirmDialog({
+    title: "確認投降",
+    message: `${colorName(loser)}確定要投降嗎？確認後本局直接結束。`, 
+    confirmText: "投降",
+    onConfirm: resignGame,
+  });
+}
+
 function undo() {
+  if (playMode === "online" && !onlineState.applyingRemote) {
+    requestOnlineAction("undo");
+    return;
+  }
+  performUndo();
+}
+
+function performUndo() {
   clearPendingMove();
   if (playMode === "online" && !onlineState.applyingRemote && !onlineState.connected) {
     setStatus("連線房間還沒有接上，等朋友進來後再悔棋。");
@@ -1684,6 +1760,14 @@ function ownerName(owner) {
 }
 
 function showScore() {
+  if (playMode === "online" && !onlineState.applyingRemote && !scoreState) {
+    requestOnlineAction("score");
+    return;
+  }
+  performShowScore();
+}
+
+function performShowScore() {
   if (scoreState && scoreVisible) {
     scoreVisible = false;
     deadStoneMode = false;
@@ -1706,6 +1790,63 @@ function showScore() {
   updateOnlineStatus();
 }
 
+function confirmFinalResult() {
+  clearPendingMove();
+  clearAiHints();
+  if (!scoreState) scoreState = calculateAreaScore();
+  scoreVisible = true;
+  gameOver = true;
+  deadStoneMode = false;
+  ownershipMode = false;
+  saveFinishedGame();
+  setStatus("終局已確認，棋局已保存到歷史棋局。");
+  render();
+  sendOnlineState("final-confirm");
+  updateOnlineStatus();
+}
+
+function requestFinalConfirm() {
+  if (playMode === "online" && !onlineState.applyingRemote) {
+    requestOnlineAction("final-confirm");
+    return;
+  }
+  showConfirmDialog({
+    title: "確認終局",
+    message: "要確認目前結果並保存棋局嗎？若死子或歸屬還沒校正，請先校正再確認。",
+    confirmText: "確認終局",
+    onConfirm: confirmFinalResult,
+  });
+}
+
+function buildTextRecord() {
+  const lines = [];
+  lines.push("棋盤小棋室 棋譜");
+  lines.push(`日期：${new Date().toLocaleString("zh-TW")}`);
+  lines.push(`棋盤：${mode} ${size}`);
+  lines.push(`手數：${moveCounter}`);
+  if (resignationState) lines.push(`結果：${colorName(resignationState.loser)}投降，${colorName(resignationState.winner)}勝`);
+  else if (scoreState) lines.push(`結果：${colorName(scoreState.winner)}勝 ${scoreState.margin.toFixed(1)} 點`);
+  else lines.push("結果：尚未判定");
+  lines.push("");
+  lines.push("棋譜：");
+  if (log.length) lines.push(...log.map((item, index) => `${index + 1}. ${item}`));
+  else lines.push("尚無落子紀錄");
+  return lines.join("\n");
+}
+
+function exportGameRecord() {
+  const text = buildTextRecord();
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `go-board-room-${new Date().toISOString().slice(0, 10)}.txt`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  setStatus("已匯出文字棋譜。");
+}
 function resetGame(nextMode = mode, nextSize = size) {
   aiThinking = false;
   clearPendingMove();
@@ -1726,6 +1867,7 @@ function resetGame(nextMode = mode, nextSize = size) {
   ownershipMode = false;
   scoreState = null;
   scoreVisible = false;
+  resignationState = null;
   v4WhiteWinRate = null;
   setStatus("黑棋先下");
   render();
@@ -2266,6 +2408,17 @@ function renderScore() {
     scoreBtn.setAttribute("aria-pressed", String(scoreVisible));
     scoreBtn.textContent = scoreState ? (scoreVisible ? "隱藏地盤" : "顯示地盤") : "數子判定";
   }
+  if (resignationState) {
+    blackAreaEl.textContent = "-";
+    whiteAreaEl.textContent = "-";
+    blackBreakdownEl.textContent = "投降終局";
+    whiteBreakdownEl.textContent = "投降終局";
+    scoreIntro.textContent = `${colorName(resignationState.loser)}投降，本局由${colorName(resignationState.winner)}獲勝。`;
+    winnerText.textContent = `${colorName(resignationState.winner)}勝。`;
+    marginText.textContent = "本局以投降結束，不使用數子法計算目差。";
+    rowBreakdown.innerHTML = `<tr><td colspan="8">${colorName(resignationState.loser)}投降</td></tr>`;
+    return;
+  }
   if (!scoreState) {
     blackAreaEl.textContent = "-";
     whiteAreaEl.textContent = "-";
@@ -2508,9 +2661,9 @@ document.querySelectorAll("[data-mode]").forEach((button) => {
   });
 });
 
-function showConfirmDialog({ title, message, confirmText, cancelText = "留下", hideCancel = false, onConfirm }) {
+function showConfirmDialog({ title, message, confirmText, cancelText = "留下", hideCancel = false, onConfirm, onCancel = null }) {
   pendingConfirmAction = onConfirm;
-  pendingCancelAction = null;
+  pendingCancelAction = onCancel;
   confirmDialogTitle.textContent = title;
   confirmDialogMessage.textContent = message;
   cancelDialogBtn.textContent = cancelText;
@@ -2549,6 +2702,10 @@ function requestMainMenu() {
 }
 
 function requestNewGame() {
+  if (playMode === "online" && !onlineState.applyingRemote && hasStartedGame()) {
+    requestOnlineAction("new-game");
+    return;
+  }
   if (hasStartedGame()) {
     showConfirmDialog({
       title: "棋局已開始",
@@ -2963,7 +3120,7 @@ function onlineSnapshot() {
     moveNumbers: cloneCells(moveNumbers),
     turn,
     captures: { ...captures },
-    history: history.map((item) => ({ ...item, captures: { ...item.captures }, log: item.log.slice(), board: cloneCells(item.board), deadMap: cloneCells(item.deadMap), moveNumbers: cloneCells(item.moveNumbers || {}), scoreState: cloneScoreState(item.scoreState) })),
+    history: history.map((item) => ({ ...item, captures: { ...item.captures }, log: item.log.slice(), board: cloneCells(item.board), deadMap: cloneCells(item.deadMap), moveNumbers: cloneCells(item.moveNumbers || {}), scoreState: cloneScoreState(item.scoreState), resignationState: item.resignationState ? { ...item.resignationState } : null })),
     log: log.slice(),
     moveCounter,
     lastMoveKey,
@@ -2974,6 +3131,7 @@ function onlineSnapshot() {
     ownershipMode,
     scoreState: cloneScoreState(scoreState),
     scoreVisible,
+    resignationState: resignationState ? { ...resignationState } : null,
     showAllMoveNumbers,
   };
 }
@@ -2987,7 +3145,7 @@ function applyOnlineSnapshot(state) {
     moveNumbers = cloneCells(state.moveNumbers || {});
     turn = state.turn || BLACK;
     captures = { [BLACK]: state.captures?.[BLACK] || 0, [WHITE]: state.captures?.[WHITE] || 0 };
-    history = Array.isArray(state.history) ? state.history.map((item) => ({ ...item, captures: { ...item.captures }, log: Array.isArray(item.log) ? item.log.slice() : [], board: cloneCells(item.board || {}), deadMap: cloneCells(item.deadMap || {}), moveNumbers: cloneCells(item.moveNumbers || {}), scoreState: cloneScoreState(item.scoreState) })) : [];
+    history = Array.isArray(state.history) ? state.history.map((item) => ({ ...item, captures: { ...item.captures }, log: Array.isArray(item.log) ? item.log.slice() : [], board: cloneCells(item.board || {}), deadMap: cloneCells(item.deadMap || {}), moveNumbers: cloneCells(item.moveNumbers || {}), scoreState: cloneScoreState(item.scoreState), resignationState: item.resignationState ? { ...item.resignationState } : null })) : [];
     log = Array.isArray(state.log) ? state.log.slice() : [];
     moveCounter = state.moveCounter || 0;
     lastMoveKey = state.lastMoveKey || null;
@@ -2998,6 +3156,7 @@ function applyOnlineSnapshot(state) {
     ownershipMode = Boolean(state.ownershipMode);
     scoreState = cloneScoreState(state.scoreState);
     scoreVisible = Boolean(state.scoreVisible);
+    resignationState = state.resignationState ? { ...state.resignationState } : null;
     showAllMoveNumbers = Boolean(state.showAllMoveNumbers);
     playMode = "online";
     render();
@@ -3020,17 +3179,93 @@ function updateOnlineStatus(extra = "") {
   setStatus(`${roomText} · ${sideText} · ${connText} · ${turnText}${extra ? ` · ${extra}` : ""}`);
 }
 
+function onlineActionLabel(action) {
+  return action === "undo" ? "悔棋" : action === "new-game" ? "新棋局" : action === "final-confirm" ? "確認終局" : action === "score" ? "數子判定" : "操作";
+}
+
+function sendOnlineMessage(message) {
+  if (playMode !== "online" || onlineState.applyingRemote || !onlineState.conn || !onlineState.connected) return false;
+  onlineState.seq += 1;
+  onlineState.conn.send({ ...message, seq: onlineState.seq });
+  return true;
+}
+
+function requestOnlineAction(action) {
+  if (playMode !== "online" || onlineState.applyingRemote) return false;
+  if (!onlineState.connected) {
+    setStatus("對方目前離線，等重新連線後再操作。你也可以回主畫面或匯出棋譜保存目前局面。");
+    return true;
+  }
+  const id = `req-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  onlineState.pendingRequestId = id;
+  sendOnlineMessage({ type: "action-request", id, action, color: onlineState.color });
+  setStatus(`已送出「${onlineActionLabel(action)}」請求，等待對方同意。`);
+  return true;
+}
+
+function runOnlineApprovedAction(action) {
+  if (action === "undo") {
+    performUndo();
+    return;
+  }
+  if (action === "new-game") {
+    resetGame(mode, size);
+    return;
+  }
+  if (action === "final-confirm") {
+    confirmFinalResult();
+    return;
+  }
+  if (action === "score") {
+    performShowScore();
+  }
+}
+
+function handleOnlineActionRequest(message) {
+  const action = message.action;
+  const label = onlineActionLabel(action);
+  showConfirmDialog({
+    title: `${label}請求`,
+    message: `對方想要「${label}」。你同意嗎？`,
+    confirmText: "同意",
+    cancelText: "拒絕",
+    onConfirm: () => {
+      sendOnlineMessage({ type: "action-response", id: message.id, action, accepted: true });
+      runOnlineApprovedAction(action);
+    },
+    onCancel: () => {
+      sendOnlineMessage({ type: "action-response", id: message.id, action, accepted: false });
+      setStatus(`已拒絕對方的「${label}」請求。`);
+    },
+  });
+}
+
+function handleOnlineActionResponse(message) {
+  const label = onlineActionLabel(message.action);
+  if (message.accepted) {
+    setStatus(`對方已同意「${label}」。`);
+    return;
+  }
+  setStatus(`對方拒絕「${label}」。`);
+}
 function sendOnlineState(reason = "sync") {
   if (playMode !== "online" || onlineState.applyingRemote || !onlineState.conn || !onlineState.connected) return;
-  onlineState.seq += 1;
-  onlineState.conn.send({ type: "state", seq: onlineState.seq, reason, state: onlineSnapshot() });
+  sendOnlineMessage({ type: "state", reason, state: onlineSnapshot() });
 }
 
 function handleOnlineData(message) {
-  if (!message || message.type !== "state" || !message.state) return;
-  applyOnlineSnapshot(message.state);
-  refreshAiHints();
-  updateOnlineStatus("收到對方棋局");
+  if (!message) return;
+  if (message.type === "state" && message.state) {
+    applyOnlineSnapshot(message.state);
+    refreshAiHints();
+    updateOnlineStatus("已同步對方棋局");
+    return;
+  }
+  if (message.type === "action-request") {
+    handleOnlineActionRequest(message);
+    return;
+  }
+  if (message.type === "action-response") handleOnlineActionResponse(message);
 }
 
 function attachOnlineConnection(conn) {
@@ -3181,6 +3416,9 @@ function showOnlineModeInfo(withAiHint) {
 document.querySelector("#passBtn").addEventListener("click", passTurn);
 document.querySelector("#undoBtn").addEventListener("click", undo);
 document.querySelector("#scoreBtn").addEventListener("click", showScore);
+resignBtn?.addEventListener("click", requestResign);
+finalConfirmBtn?.addEventListener("click", requestFinalConfirm);
+exportRecordBtn?.addEventListener("click", exportGameRecord);
 document.querySelector("#newGameBtn").addEventListener("click", requestNewGame);
 traditionalModeBtn.addEventListener("click", () => startGame("traditional"));
 aiModeBtn.addEventListener("click", () => startGame("ai"));

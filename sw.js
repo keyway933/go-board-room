@@ -1,4 +1,4 @@
-const CACHE_NAME = "go-board-room-v27-left-panel-flow";
+const CACHE_NAME = "go-board-room-v29-game-flow-basics";
 const ASSETS = [
   "./",
   "./index.html",
