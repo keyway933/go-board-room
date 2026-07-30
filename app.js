@@ -111,6 +111,7 @@ let ownershipMode = false;
 let scoreState = null;
 let scoreVisible = false;
 let resignationState = null;
+let endgamePromptShown = false;
 let layout = null;
 let torusView = { u: 0, v: 0 };
 let torusDrag = null;
@@ -1021,6 +1022,8 @@ function loadHistoryRecord(record) {
   ownershipMode = false;
   scoreState = null;
   scoreVisible = false;
+  resignationState = null;
+  endgamePromptShown = false;
   setStatus(`已載入「${record.name || defaultHistoryTitle(record)}」，輪到 ${colorName(turn)}。`);
   render();
   scheduleAiMove();
@@ -1139,6 +1142,7 @@ function restore(state) {
   scoreState = cloneScoreState(state.scoreState);
   scoreVisible = Boolean(state.scoreVisible);
   resignationState = state.resignationState ? { ...state.resignationState } : null;
+  endgamePromptShown = Boolean(gameOver && passCount >= 2);
   render();
 }
 
@@ -1405,6 +1409,7 @@ function aiPass() {
     setStatus("AI Pass，輪到黑棋。");
   }
   render();
+  if (passCount >= 2) promptEndgameCleanup();
   refreshAiHints();
 }
 
@@ -1476,6 +1481,7 @@ function tryPlay(key, fromAi = false) {
   scoreState = null;
   scoreVisible = false;
   resignationState = null;
+  endgamePromptShown = false;
   setStatus(capturedCount ? `提掉 ${capturedCount} 子，輪到 ${colorName(turn)}。` : `輪到 ${colorName(turn)}。`);
   render();
   sendOnlineState("move");
@@ -1506,6 +1512,50 @@ function removeDeadGroup(key) {
   updateOnlineStatus();
 }
 
+function startEndgameCleanup() {
+  scoreState = scoreState || calculateAreaScore();
+  scoreVisible = true;
+  deadStoneMode = true;
+  ownershipMode = false;
+  gameOver = true;
+  setStatus("進入終局整理。請提死子、校正歸屬，再確認終局。");
+  render();
+  sendOnlineState("endgame-cleanup");
+  updateOnlineStatus();
+}
+
+function continueAfterDoublePass() {
+  if (!gameOver || passCount < 2 || resignationState) return;
+  pushHistory();
+  gameOver = false;
+  scoreState = null;
+  scoreVisible = false;
+  deadStoneMode = false;
+  ownershipMode = false;
+  passCount = 0;
+  turn = opponent(turn);
+  endgamePromptShown = false;
+  setStatus(`繼續下棋，輪到 ${colorName(turn)}。`);
+  render();
+  sendOnlineState("continue-after-pass");
+  updateOnlineStatus();
+  scheduleAiMove();
+  refreshAiHints();
+}
+
+function promptEndgameCleanup() {
+  if (endgamePromptShown || !gameOver || passCount < 2 || resignationState) return;
+  endgamePromptShown = true;
+  showConfirmDialog({
+    title: "進入終局整理？",
+    message: "雙方已連續 Pass。可以開始提死子、校正歸屬並數子；如果有人按錯 Pass，也可以繼續下棋。",
+    confirmText: "開始整理",
+    cancelText: "繼續下棋",
+    onConfirm: startEndgameCleanup,
+    onCancel: continueAfterDoublePass,
+  });
+}
+
 function passTurn() {
   clearPendingMove();
   clearAiHints();
@@ -1534,6 +1584,7 @@ function passTurn() {
   render();
   sendOnlineState("pass");
   updateOnlineStatus();
+  if (passCount >= 2) promptEndgameCleanup();
   scheduleAiMove();
   if (playMode !== "ai") refreshAiHints();
 }
@@ -1868,6 +1919,7 @@ function resetGame(nextMode = mode, nextSize = size) {
   scoreState = null;
   scoreVisible = false;
   resignationState = null;
+  endgamePromptShown = false;
   v4WhiteWinRate = null;
   setStatus("黑棋先下");
   render();
@@ -3259,6 +3311,15 @@ function handleOnlineData(message) {
     applyOnlineSnapshot(message.state);
     refreshAiHints();
     updateOnlineStatus("已同步對方棋局");
+    if (message.reason === "pass" && passCount >= 2 && gameOver) {
+      promptEndgameCleanup();
+    } else if (message.reason === "endgame-cleanup") {
+      hideConfirmDialog();
+      endgamePromptShown = true;
+    } else if (message.reason === "continue-after-pass") {
+      hideConfirmDialog();
+      endgamePromptShown = false;
+    }
     return;
   }
   if (message.type === "action-request") {
