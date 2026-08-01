@@ -1,4 +1,4 @@
-const CACHE_NAME = "go-board-room-v32-endgame-pass";
+const CACHE_NAME = "go-board-room-v33-pass-after-200";
 const ASSETS = [
   "./",
   "./index.html",
