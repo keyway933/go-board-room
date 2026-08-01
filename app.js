@@ -707,6 +707,23 @@ function uniqueMoves(moves) {
   });
 }
 
+function isUnresolvedEndgameBoundaryMove(move) {
+  const contact = getEndgameContactInfo(board, move.key);
+  if (move.capturedCount > 0) return true;
+  if (contact.touchesBoth) return true;
+  if (contact.owner === NEUTRAL && contact.touchesAnyStone) return true;
+  if (contact.owner === BLACK && contact.touchesWhite) return true;
+  if (contact.owner === WHITE && contact.touchesBlack) return true;
+  return false;
+}
+
+function collectUnresolvedEndgameBoundaryMoves(legalMoves) {
+  return legalMoves.filter((move) => {
+    if (!isUnresolvedEndgameBoundaryMove(move)) return false;
+    return move.capturedCount > 0 || move.liberties >= 2;
+  });
+}
+
 function rateAiEndgameMove(move, beforeArea, policyLogit = 0) {
   const tactical = estimateAiMove(move);
   const afterArea = estimateAreaFromBoard(move.next);
@@ -759,16 +776,23 @@ function chooseAiEndgameMoveOrPass(legalMoves, policy) {
 
   const beforeArea = estimateAreaFromBoard(board);
   const rankedPolicy = rankV4Moves(legalMoves, policy);
+  const policyLogits = new Map(rankedPolicy.map((move) => [move.key, move.logit]));
+  const boundaryMoves = collectUnresolvedEndgameBoundaryMoves(legalMoves);
   const rankedTactical = legalMoves
     .map(estimateAiMove)
     .sort((left, right) => right.rawScore - left.rawScore);
   const candidateMoves = uniqueMoves([
+    ...boundaryMoves,
     ...rankedPolicy.slice(0, AI_ENDGAME_CANDIDATE_LIMIT),
     ...rankedTactical.slice(0, Math.floor(AI_ENDGAME_CANDIDATE_LIMIT / 2)),
   ]);
   const rated = candidateMoves
-    .map((move) => rateAiEndgameMove(move, beforeArea, Number(move.logit) || 0))
-    .sort((left, right) => right.endgameValue - left.endgameValue);
+    .map((move) => rateAiEndgameMove(move, beforeArea, Number(policyLogits.get(move.key)) || Number(move.logit) || 0))
+    .sort((left, right) => {
+      const leftBoundary = isUnresolvedEndgameBoundaryMove(left) ? 1 : 0;
+      const rightBoundary = isUnresolvedEndgameBoundaryMove(right) ? 1 : 0;
+      return (rightBoundary - leftBoundary) || (right.endgameValue - left.endgameValue);
+    });
 
   const best = rated[0] || null;
   if (!best) return { active: true, pass: true, move: null };
@@ -777,7 +801,8 @@ function chooseAiEndgameMoveOrPass(legalMoves, policy) {
     ? AI_ENDGAME_AFTER_PASS_THRESHOLD
     : AI_ENDGAME_PASS_THRESHOLD;
   const hasUrgentTacticalMove = best.capturedCount > 0 || best.rescuedWhiteStones > 0;
-  const shouldPass = !hasUrgentTacticalMove && best.endgameValue < threshold;
+  const hasUnresolvedBoundary = boundaryMoves.length > 0;
+  const shouldPass = !hasUnresolvedBoundary && !hasUrgentTacticalMove && best.endgameValue < threshold;
   return { active: true, pass: shouldPass, move: shouldPass ? null : best };
 }
 async function findV4Move() {

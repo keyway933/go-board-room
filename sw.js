@@ -1,4 +1,4 @@
-const CACHE_NAME = "go-board-room-v33-pass-after-200";
+const CACHE_NAME = "go-board-room-v34-boundary-pass-veto";
 const ASSETS = [
   "./",
   "./index.html",
