@@ -37,6 +37,7 @@ const aiDifficultyText = document.querySelector("#aiDifficultyText");
 const generalAiStrengthControls = document.querySelector("#generalAiStrengthControls");
 const colorAiStrengthControls = document.querySelector("#colorAiStrengthControls");
 const aiHintToggle = document.querySelector("#aiHintToggle");
+const aiHintStrengthControls = document.querySelector("#aiHintStrengthControls");
 const colorAiHintToggles = document.querySelector("#colorAiHintToggles");
 const blackAiHintToggle = document.querySelector("#blackAiHintToggle");
 const whiteAiHintToggle = document.querySelector("#whiteAiHintToggle");
@@ -130,6 +131,7 @@ let pendingCancelAction = null;
 let aiStrength = "low";
 let blackAiStrength = "low";
 let whiteAiStrength = "max";
+let aiHintStrength = "max";
 let aiHintsEnabled = false;
 let blackAiHintsEnabled = false;
 let whiteAiHintsEnabled = false;
@@ -521,7 +523,7 @@ function aiStrengthForColor(color) {
 
 function currentAiHintStrength() {
   if (playMode === "traditional") return aiStrengthForColor(turn);
-  return aiStrength;
+  return aiHintStrength;
 }
 
 function usesFixedTwoAiHints() {
@@ -593,6 +595,12 @@ function renderAiHintControls(message = null) {
   aiHintToggle.classList.toggle("is-hidden", isTraditionalMode);
   aiHintToggle.setAttribute("aria-pressed", String(aiHintsEnabled));
   aiHintToggle.textContent = aiHintsEnabled ? "AI 提示：開" : "AI 提示：關";
+  if (aiHintStrengthControls) {
+    aiHintStrengthControls.classList.toggle("is-hidden", isTraditionalMode);
+    aiHintStrengthControls.querySelectorAll("[data-ai-hint-strength]").forEach((button) => {
+      button.classList.toggle("active", button.dataset.aiHintStrength === aiHintStrength);
+    });
+  }
   if (colorAiHintToggles) colorAiHintToggles.classList.toggle("is-hidden", !isTraditionalMode);
   if (blackAiHintToggle) {
     blackAiHintToggle.setAttribute("aria-pressed", String(blackAiHintsEnabled));
@@ -3700,6 +3708,20 @@ if (aiHintToggle) {
   aiHintToggle.addEventListener("click", () => {
     aiHintsEnabled = !aiHintsEnabled;
     if (!aiHintsEnabled) clearAiHints();
+    render();
+    refreshAiHints();
+  });
+}
+if (aiHintStrengthControls) {
+  aiHintStrengthControls.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-ai-hint-strength]");
+    if (!button) return;
+    const value = button.dataset.aiHintStrength;
+    if (!AI_STRENGTHS[value]) return;
+    aiHintStrength = value;
+    const label = AI_STRENGTHS[value].label;
+    setStatus("AI 提示強度已切換為 " + label + "。");
+    clearAiHints();
     render();
     refreshAiHints();
   });

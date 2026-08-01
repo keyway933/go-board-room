@@ -542,6 +542,22 @@ h3 {
   border-top: 1px solid rgba(32, 36, 42, 0.12);
 }
 
+.ai-hint-strength {
+  margin-top: 10px;
+}
+
+.ai-hint-strength > span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.ai-hint-strength .ai-difficulty-grid {
+  margin-top: 0;
+}
+
 .color-ai-hint-toggles {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

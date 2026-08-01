@@ -180,6 +180,15 @@
           <p id="aiDifficultyText" class="ai-difficulty-note">低：較適合新手，AI 會比較放鬆。</p>
           <div class="ai-hint-panel">
             <button id="aiHintToggle" class="wide" aria-pressed="false">AI 提示：關</button>
+            <div id="aiHintStrengthControls" class="ai-hint-strength" aria-label="AI 提示強度">
+              <span>提示強度</span>
+              <div class="ai-difficulty-grid" role="group" aria-label="AI 提示強度">
+                <button data-ai-hint-strength="low">低</button>
+                <button data-ai-hint-strength="medium">中</button>
+                <button data-ai-hint-strength="high">高</button>
+                <button data-ai-hint-strength="max" class="active">最高</button>
+              </div>
+            </div>
             <div id="colorAiHintToggles" class="color-ai-hint-toggles is-hidden" role="group" aria-label="黑白 AI 提示開關">
               <button id="blackAiHintToggle" type="button" aria-pressed="false">黑 AI 提示：關</button>
               <button id="whiteAiHintToggle" type="button" aria-pressed="false">白 AI 提示：關</button>
