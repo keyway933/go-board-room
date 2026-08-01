@@ -1,4 +1,4 @@
-const CACHE_NAME = "go-board-room-v30-endgame-prompt";
+const CACHE_NAME = "go-board-room-v31-v7-ai";
 const ASSETS = [
   "./",
   "./index.html",
@@ -7,7 +7,7 @@ const ASSETS = [
   "./manifest.webmanifest",
   "./icon.svg",
   "./models/v4-sgf-web.onnx",
-  "./models/v6-value-tactical-web.onnx",
+  "./models/v7-value-tactical-web.onnx",
   "./vendor/onnxruntime/ort.wasm.min.js",
   "./vendor/onnxruntime/ort-wasm-simd-threaded.mjs",
   "./vendor/onnxruntime/ort-wasm-simd-threaded.wasm"
@@ -39,5 +39,3 @@ self.addEventListener("fetch", (event) => {
       )
   );
 });
-
-

@@ -73,8 +73,8 @@ const GAME_HISTORY_LIMIT = 60;
 const GAME_HISTORY_COLLAPSED_COUNT = 6;
 const LETTERS = "ABCDEFGHJKLMNOPQRST";
 const BOPOMOFO = ["ㄅ", "ㄆ", "ㄇ", "ㄈ", "ㄉ", "ㄊ", "ㄋ", "ㄌ", "ㄍ", "ㄎ", "ㄏ", "ㄐ", "ㄑ", "ㄒ", "ㄓ", "ㄔ", "ㄕ", "ㄖ", "ㄗ"];
-const V4_MODEL_NAME = "V6-Value/Tactical";
-const V4_MODEL_URL = "./models/v6-value-tactical-web.onnx";
+const V4_MODEL_NAME = "V7-Value/Tactical";
+const V4_MODEL_URL = "./models/v7-value-tactical-web.onnx";
 const V4_RUNTIME_PATH = "./vendor/onnxruntime/";
 const V4_MODEL_TIMEOUT_MS = 30000;
 const V4_INFERENCE_TIMEOUT_MS = 8000;
@@ -189,7 +189,7 @@ const AI_STRENGTHS = {
   },
   max: {
     label: "最高",
-    note: "最高：最接近 V6-Value/Tactical 原本判斷。",
+    note: "最高：最接近 V7-Value/Tactical 原本判斷。",
     candidateCount: 1,
     randomness: 0,
     depthBonus: 2,
@@ -233,7 +233,7 @@ window.__rejectNativeV4 = (requestId, message) => {
   const pending = nativeV4Requests.get(requestId);
   if (!pending) return;
   nativeV4Requests.delete(requestId);
-  pending.reject(new Error(message || "V6-Value/Tactical Android 推論失敗"));
+  pending.reject(new Error(message || "V7-Value/Tactical Android 推論失敗"));
 };
 
 function waitForNativeV4() {
@@ -251,7 +251,7 @@ function waitForNativeV4() {
         return;
       }
       if (Date.now() - startedAt >= V4_MODEL_TIMEOUT_MS) {
-        reject(new Error("V6-Value/Tactical Android 模型載入逾時"));
+        reject(new Error("V7-Value/Tactical Android 模型載入逾時"));
         return;
       }
       window.setTimeout(check, 100);
@@ -279,7 +279,7 @@ function isV4PositionSupported() {
 function prepareV4Model() {
   if (v4SessionPromise) return v4SessionPromise;
   if (hasNativeV4Bridge()) {
-    setV4ModelStatus("loading", "V6-Value/Tactical Android 模型載入中...");
+    setV4ModelStatus("loading", "V7-Value/Tactical Android 模型載入中...");
     v4SessionPromise = waitForNativeV4().catch((error) => {
       v4SessionPromise = null;
       setV4ModelStatus("fallback", "Android 模型載入失敗，改用備援 AI");
@@ -303,7 +303,7 @@ function prepareV4Model() {
     setV4ModelStatus("ready", "已就緒 · 離線推論");
     return session;
   }).catch((error) => {
-    console.error("V6-Value/Tactical model load failed", error);
+    console.error("V7-Value/Tactical model load failed", error);
     setV4ModelStatus("fallback", "載入失敗，使用備援 AI");
     throw error;
   });
@@ -368,28 +368,28 @@ async function runV4Inference(source, perspective) {
   let value;
 
   if (hasNativeV4Bridge()) {
-    await withTimeout(prepareV4Model(), V4_MODEL_TIMEOUT_MS, "V6-Value/Tactical 模型載入");
+    await withTimeout(prepareV4Model(), V4_MODEL_TIMEOUT_MS, "V7-Value/Tactical 模型載入");
     const outputs = await withTimeout(
       runNativeV4Inference(features),
       V4_INFERENCE_TIMEOUT_MS,
-      "V6-Value/Tactical Android 推論"
+      "V7-Value/Tactical Android 推論"
     );
     policy = outputs.policy;
     value = Number(outputs.value);
   } else {
-    const session = await withTimeout(prepareV4Model(), V4_MODEL_TIMEOUT_MS, "V6-Value/Tactical 模型載入");
+    const session = await withTimeout(prepareV4Model(), V4_MODEL_TIMEOUT_MS, "V7-Value/Tactical 模型載入");
     const tensor = new window.ort.Tensor("float32", features, [1, 14, 19, 19]);
     const outputs = await withTimeout(
       session.run({ features: tensor }),
       V4_INFERENCE_TIMEOUT_MS,
-      "V6-Value/Tactical 推論"
+      "V7-Value/Tactical 推論"
     );
     policy = outputs.policy_logits?.data;
     value = Number(outputs.value?.data?.[0]);
   }
 
   if (!policy || policy.length !== 361 || !Number.isFinite(value)) {
-    throw new Error("V6-Value/Tactical 輸出格式不正確");
+    throw new Error("V7-Value/Tactical 輸出格式不正確");
   }
   const perspectiveWinRate = Math.max(0, Math.min(100, (value + 1) * 50));
   return {
@@ -624,7 +624,7 @@ function renderAiHintControls(message = null) {
   }
 }
 async function findV4Move() {
-  if (!isV4PositionSupported()) throw new Error("V6-Value/Tactical 只支援標準 19 路");
+  if (!isV4PositionSupported()) throw new Error("V7-Value/Tactical 只支援標準 19 路");
   const legalMoves = points
     .map((point) => previewMove(point.key, WHITE))
     .filter(Boolean);
@@ -646,7 +646,7 @@ async function refreshV4WinRate() {
     v4WhiteWinRate = inference.whiteWinRate;
     renderWinrate();
   } catch (error) {
-    console.warn("V6-Value/Tactical value refresh failed", error);
+    console.warn("V7-Value/Tactical value refresh failed", error);
   }
 }
 
@@ -669,10 +669,10 @@ function startGame(nextPlayMode) {
   gameShell.classList.remove("is-hidden");
   resetGame("square", 19);
   if (playMode === "ai") {
-    setStatus("AI 對弈：你執黑先下，V6-Value/Tactical 載入中。");
+    setStatus("AI 對弈：你執黑先下，V7-Value/Tactical 載入中。");
     prepareV4Model().then(() => {
       if (playMode === "ai" && turn === BLACK && moveCounter === 0) {
-        setStatus("AI 對弈：你執黑先下，V6-Value/Tactical 已就緒。");
+        setStatus("AI 對弈：你執黑先下，V7-Value/Tactical 已就緒。");
       }
       renderAiStrength();
     }).catch(() => renderAiStrength());
@@ -1362,7 +1362,7 @@ function scheduleAiMove() {
   if (playMode !== "ai" || aiThinking || gameOver || turn !== WHITE || deadStoneMode || ownershipMode) return;
   aiThinking = true;
   const snapshot = boardKey();
-  setStatus(isV4PositionSupported() ? "V6-Value/Tactical 思考中..." : "備援 AI 思考中...");
+  setStatus(isV4PositionSupported() ? "V7-Value/Tactical 思考中..." : "備援 AI 思考中...");
 
   window.setTimeout(async () => {
     let aiMove = null;
@@ -1370,7 +1370,7 @@ function scheduleAiMove() {
     try {
       aiMove = isV4PositionSupported() ? await findV4Move() : findAiMove();
     } catch (error) {
-      console.warn("V6-Value/Tactical inference failed; using fallback AI", error);
+      console.warn("V7-Value/Tactical inference failed; using fallback AI", error);
       setV4ModelStatus("fallback", "推論失敗，使用備援 AI");
       aiMove = findAiMove();
       usedFallback = true;
