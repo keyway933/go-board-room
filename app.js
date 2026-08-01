@@ -78,6 +78,12 @@ const V4_MODEL_URL = "./models/v7-value-tactical-web.onnx";
 const V4_RUNTIME_PATH = "./vendor/onnxruntime/";
 const V4_MODEL_TIMEOUT_MS = 30000;
 const V4_INFERENCE_TIMEOUT_MS = 8000;
+const AI_ENDGAME_PASS_AFTER_HUMAN_PASS_MIN_MOVES = 60;
+const AI_ENDGAME_PASS_MIN_MOVES = 130;
+const AI_ENDGAME_FORCE_REVIEW_MIN_MOVES = 170;
+const AI_ENDGAME_CANDIDATE_LIMIT = 96;
+const AI_ENDGAME_PASS_THRESHOLD = 4.4;
+const AI_ENDGAME_AFTER_PASS_THRESHOLD = 2.2;
 const PEERJS_URL = "https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js";
 const ONLINE_ROOM_PREFIX = "gbr-";
 const MATCH_SERVER_URL_KEY = "go-board-room-match-server-url";
@@ -623,6 +629,157 @@ function renderAiHintControls(message = null) {
     aiHintText.textContent = aiHintLoading ? "AI 正在看棋盤..." : "輪到你時會在棋盤上標出建議點。";
   }
 }
+function estimateAreaFromBoard(source) {
+  const stones = { [BLACK]: 0, [WHITE]: 0 };
+  const territory = { [BLACK]: 0, [WHITE]: 0, neutral: 0 };
+  const seen = new Set();
+
+  for (const point of points) {
+    const color = source[point.key];
+    if (color === BLACK || color === WHITE) stones[color] += 1;
+  }
+
+  for (const point of points) {
+    const startKey = point.key;
+    if (source[startKey] !== EMPTY || seen.has(startKey)) continue;
+
+    const region = [];
+    const borders = new Set();
+    const queue = [startKey];
+    seen.add(startKey);
+
+    while (queue.length) {
+      const key = queue.shift();
+      region.push(key);
+      for (const nextKey of neighborsOfKey(key)) {
+        const cell = source[nextKey];
+        if (cell === EMPTY && !seen.has(nextKey)) {
+          seen.add(nextKey);
+          queue.push(nextKey);
+        } else if (cell === BLACK || cell === WHITE) {
+          borders.add(cell);
+        }
+      }
+    }
+
+    const owner = borders.size === 1 ? [...borders][0] : NEUTRAL;
+    if (owner === BLACK || owner === WHITE) territory[owner] += region.length;
+    else territory.neutral += region.length;
+  }
+
+  const blackTotal = stones[BLACK] + territory[BLACK];
+  const whiteTotal = stones[WHITE] + territory[WHITE];
+  return {
+    stones,
+    territory,
+    blackTotal,
+    whiteTotal,
+    whiteLead: whiteTotal + KOMI - blackTotal,
+  };
+}
+
+function getEndgameContactInfo(source, key) {
+  const neighborColors = new Set();
+  let emptyNeighborCount = 0;
+  for (const nextKey of neighborsOfKey(key)) {
+    const cell = source[nextKey];
+    if (cell === BLACK || cell === WHITE) neighborColors.add(cell);
+    if (cell === EMPTY) emptyNeighborCount += 1;
+  }
+
+  const owner = source[key] === EMPTY ? inferOwnerByRegion(source, key) : NEUTRAL;
+  return {
+    owner,
+    emptyNeighborCount,
+    touchesBlack: neighborColors.has(BLACK),
+    touchesWhite: neighborColors.has(WHITE),
+    touchesBoth: neighborColors.has(BLACK) && neighborColors.has(WHITE),
+    touchesAnyStone: neighborColors.size > 0,
+  };
+}
+
+function uniqueMoves(moves) {
+  const seen = new Set();
+  return moves.filter((move) => {
+    if (!move || seen.has(move.key)) return false;
+    seen.add(move.key);
+    return true;
+  });
+}
+
+function rateAiEndgameMove(move, beforeArea, policyLogit = 0) {
+  const tactical = estimateAiMove(move);
+  const afterArea = estimateAreaFromBoard(move.next);
+  const contact = getEndgameContactInfo(board, move.key);
+  const scoreGain = afterArea.whiteLead - beforeArea.whiteLead;
+  const isOwnTerritoryFill = contact.owner === WHITE
+    && !contact.touchesBlack
+    && move.capturedCount === 0
+    && tactical.rescuedWhiteStones === 0;
+  const riskyReply = Math.max(0, tactical.blackReplyCapture - move.capturedCount);
+
+  let boundaryValue = 0;
+  if (contact.touchesBoth) boundaryValue += 5.2;
+  if (contact.owner === NEUTRAL && contact.touchesAnyStone) boundaryValue += 3.4;
+  if (contact.owner === BLACK && contact.touchesWhite) boundaryValue += 2.8;
+  if (contact.owner === WHITE && contact.touchesBlack) boundaryValue += 1.4;
+  if (contact.emptyNeighborCount === 0 && move.capturedCount === 0) boundaryValue -= 2.2;
+
+  const value =
+    scoreGain * 1.55
+    + move.capturedCount * 9.5
+    + tactical.rescuedWhiteStones * 7.5
+    + boundaryValue
+    + Math.max(-1.5, Math.min(1.5, policyLogit / 8))
+    - riskyReply * 8
+    - (move.liberties === 1 ? 6 : 0)
+    - (isOwnTerritoryFill ? 8 : 0);
+
+  return {
+    ...move,
+    endgameValue: value,
+    endgameScoreGain: scoreGain,
+    endgameContact: contact,
+    blackReplyCapture: tactical.blackReplyCapture,
+    rescuedWhiteStones: tactical.rescuedWhiteStones,
+    endangeredWhiteStones: tactical.endangeredWhiteStones,
+    rawScore: tactical.rawScore,
+    winRate: tactical.winRate,
+  };
+}
+
+function chooseAiEndgameMoveOrPass(legalMoves, policy) {
+  if (mode !== "square" || size !== 19) return { active: false, pass: false, move: null };
+
+  const afterHumanPass = passCount > 0;
+  const canReviewEndgame = afterHumanPass
+    ? moveCounter >= AI_ENDGAME_PASS_AFTER_HUMAN_PASS_MIN_MOVES
+    : moveCounter >= AI_ENDGAME_PASS_MIN_MOVES;
+  if (!canReviewEndgame) return { active: false, pass: false, move: null };
+
+  const beforeArea = estimateAreaFromBoard(board);
+  const rankedPolicy = rankV4Moves(legalMoves, policy);
+  const rankedTactical = legalMoves
+    .map(estimateAiMove)
+    .sort((left, right) => right.rawScore - left.rawScore);
+  const candidateMoves = uniqueMoves([
+    ...rankedPolicy.slice(0, AI_ENDGAME_CANDIDATE_LIMIT),
+    ...rankedTactical.slice(0, Math.floor(AI_ENDGAME_CANDIDATE_LIMIT / 2)),
+  ]);
+  const rated = candidateMoves
+    .map((move) => rateAiEndgameMove(move, beforeArea, Number(move.logit) || 0))
+    .sort((left, right) => right.endgameValue - left.endgameValue);
+
+  const best = rated[0] || null;
+  if (!best) return { active: true, pass: true, move: null };
+
+  const threshold = afterHumanPass || moveCounter >= AI_ENDGAME_FORCE_REVIEW_MIN_MOVES
+    ? AI_ENDGAME_AFTER_PASS_THRESHOLD
+    : AI_ENDGAME_PASS_THRESHOLD;
+  const hasUrgentTacticalMove = best.capturedCount > 0 || best.rescuedWhiteStones > 0;
+  const shouldPass = !hasUrgentTacticalMove && best.endgameValue < threshold;
+  return { active: true, pass: shouldPass, move: shouldPass ? null : best };
+}
 async function findV4Move() {
   if (!isV4PositionSupported()) throw new Error("V7-Value/Tactical 只支援標準 19 路");
   const legalMoves = points
@@ -632,7 +789,9 @@ async function findV4Move() {
 
   const inference = await runV4Inference(board, WHITE);
   v4WhiteWinRate = inference.whiteWinRate;
-  const selectedMove = selectV4MoveByDifficulty(legalMoves, inference.policy);
+  const endgameDecision = chooseAiEndgameMoveOrPass(legalMoves, inference.policy);
+  if (endgameDecision.pass) return null;
+  const selectedMove = endgameDecision.move || selectV4MoveByDifficulty(legalMoves, inference.policy);
   return selectedMove ? { ...selectedMove, winRate: Math.round(inference.whiteWinRate), engine: V4_MODEL_NAME } : null;
 }
 
@@ -3599,11 +3758,3 @@ if ("serviceWorker" in navigator) {
 }
 
 resetGame("square", 19);
-
-
-
-
-
-
-
-
