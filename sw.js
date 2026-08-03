@@ -1,4 +1,4 @@
-const CACHE_NAME = "go-board-room-v35-ai-hint-strength";
+const CACHE_NAME = "go-board-room-v36-adsense-auto";
 const ASSETS = [
   "./",
   "./index.html",
