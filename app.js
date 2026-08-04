@@ -2,6 +2,7 @@ const canvas = document.querySelector("#goBoard");
 const ctx = canvas.getContext("2d");
 const appTitle = document.querySelector("#appTitle");
 const statusText = document.querySelector("#statusText");
+const termText = document.querySelector("#termText");
 const turnText = document.querySelector("#turnText");
 const turnCard = document.querySelector("#turnCard");
 const blackCapturesEl = document.querySelector("#blackCaptures");
@@ -850,6 +851,147 @@ function opponent(color) {
   return color === BLACK ? WHITE : BLACK;
 }
 
+function setTermHint(message) {
+  if (termText) termText.textContent = message;
+}
+
+function pointDistance(left, right) {
+  return Math.hypot(left.a - right.a, left.b - right.b);
+}
+
+function localStones(source, key, color, radius = 4) {
+  const origin = parseKey(key);
+  return points
+    .filter((point) => source[point.key] === color)
+    .map((point) => ({ ...point, distance: pointDistance(origin, point) }))
+    .filter((point) => point.distance > 0 && point.distance <= radius)
+    .sort((left, right) => left.distance - right.distance);
+}
+
+function hasStoneNearCorner(source, color, cornerX, cornerY, radius = 4) {
+  return points.some((point) => {
+    if (source[point.key] !== color) return false;
+    return Math.abs(point.a - cornerX) <= radius && Math.abs(point.b - cornerY) <= radius;
+  });
+}
+
+function nearestCorner(a, b) {
+  const corners = [
+    { x: 0, y: 0 },
+    { x: size - 1, y: 0 },
+    { x: 0, y: size - 1 },
+    { x: size - 1, y: size - 1 },
+  ];
+  return corners
+    .map((corner) => ({ ...corner, distance: Math.hypot(a - corner.x, b - corner.y) }))
+    .sort((left, right) => left.distance - right.distance)[0];
+}
+
+function cornerOpeningTerm(key, color, source) {
+  if (mode !== "square" || moveCounter > 45) return null;
+  const { a, b } = parseKey(key);
+  const corner = nearestCorner(a, b);
+  if (!corner || corner.distance > 6) return null;
+  const enemy = opponent(color);
+  const hasEnemyCorner = hasStoneNearCorner(source, enemy, corner.x, corner.y, 5);
+  const hasFriendlyCorner = hasStoneNearCorner(source, color, corner.x, corner.y, 5);
+  if (hasEnemyCorner) {
+    return {
+      name: "\u639b\u89d2",
+      description: "\u5728\u5c0d\u65b9\u89d2\u90e8\u9644\u8fd1\u843d\u5b50\uff0c\u901a\u5e38\u662f\u60f3\u5e72\u64fe\u6216\u722d\u596a\u89d2\u90e8\u52e2\u529b\u3002",
+    };
+  }
+  if (hasFriendlyCorner) {
+    return {
+      name: "\u5b88\u89d2",
+      description: "\u88dc\u5f37\u81ea\u5df1\u7684\u89d2\u90e8\uff0c\u8b93\u89d2\u5730\u66f4\u7a69\uff0c\u4e5f\u6bd4\u8f03\u4e0d\u6015\u88ab\u6253\u5165\u3002",
+    };
+  }
+  return {
+    name: "\u4f54\u89d2",
+    description: "\u5148\u5728\u7a7a\u89d2\u843d\u5b50\uff0c\u56e0\u70ba\u89d2\u90e8\u6700\u5bb9\u6613\u505a\u5730\u8207\u5b89\u5b9a\u3002",
+  };
+}
+
+function relationTermFromFriendlyStone(key, color, source) {
+  const friends = localStones(source, key, color, 4);
+  if (!friends.length) return null;
+  const origin = parseKey(key);
+  for (const friend of friends) {
+    const dx = Math.abs(origin.a - friend.a);
+    const dy = Math.abs(origin.b - friend.b);
+    if ((dx === 1 && dy === 0) || (dx === 0 && dy === 1)) {
+      const edgeDistance = Math.min(origin.a, origin.b, size - 1 - origin.a, size - 1 - origin.b);
+      return edgeDistance <= 2
+        ? { name: "\u7acb", description: "\u6cbf\u8457\u908a\u7dda\u5411\u5916\u88dc\u4e00\u624b\uff0c\u5e38\u7528\u4f86\u7a69\u5b9a\u908a\u4e0a\u7684\u68cb\u5f62\u6216\u9632\u6b62\u88ab\u58d3\u8feb\u3002" }
+        : { name: "\u9577", description: "\u8cbc\u8457\u81ea\u5df1\u7684\u68cb\u5b50\u5f80\u524d\u5ef6\u4f38\u4e00\u624b\uff0c\u662f\u589e\u52a0\u6c23\u548c\u9023\u7d61\u7684\u57fa\u672c\u4e0b\u6cd5\u3002" };
+    }
+    if (dx === 1 && dy === 1) {
+      return { name: "\u5c16", description: "\u659c\u8457\u8d70\u4e00\u6b65\u7684\u624b\u6bb5\uff0c\u5f62\u72c0\u6bd4\u8f03\u8f15\u5feb\uff0c\u4f46\u4e2d\u9593\u6709\u88ab\u5207\u65b7\u7684\u53ef\u80fd\u3002" };
+    }
+    if ((dx === 1 && dy === 2) || (dx === 2 && dy === 1)) {
+      return { name: "\u5c0f\u98db", description: "\u5c0f\u99ac\u6b65\u5ef6\u4f38\u68cb\u5f62\uff0c\u901f\u5ea6\u548c\u9023\u7d61\u611f\u517c\u5177\uff0c\u662f\u5e03\u5c40\u8207\u4e2d\u76e4\u5e38\u898b\u7684\u8d70\u6cd5\u3002" };
+    }
+    if (dx === 2 && dy === 2) {
+      return { name: "\u5927\u98db", description: "\u6bd4\u5c0f\u98db\u66f4\u5bec\u7684\u5ef6\u4f38\uff0c\u901f\u5ea6\u5feb\uff0c\u4f46\u4e5f\u8f03\u5bb9\u6613\u7559\u4e0b\u88ab\u5207\u65b7\u7684\u5473\u9053\u3002" };
+    }
+    if ((dx === 2 && dy === 0) || (dx === 0 && dy === 2)) {
+      return { name: "\u4e00\u9593\u8df3", description: "\u9694\u4e00\u8def\u5411\u5916\u8df3\u51fa\uff0c\u5e38\u7528\u4f86\u51fa\u982d\u3001\u9023\u7d61\u6216\u64f4\u5f35\u3002" };
+    }
+    if ((dx === 3 && dy === 0) || (dx === 0 && dy === 3)) {
+      return { name: "\u4e8c\u9593\u8df3", description: "\u9694\u5169\u8def\u5411\u5916\u8df3\u51fa\uff0c\u901f\u5ea6\u66f4\u5feb\uff0c\u4f46\u9700\u8981\u6ce8\u610f\u4e2d\u9593\u662f\u5426\u6703\u88ab\u5207\u65b7\u3002" };
+    }
+  }
+  return null;
+}
+
+function tacticalTerm(key, color, source, capturedCount) {
+  if (capturedCount > 0) {
+    return {
+      name: "\u63d0\u5b50",
+      description: "\u9019\u624b\u62ff\u6389\u5c0d\u65b9 " + capturedCount + " \u9846\u68cb\u5b50\uff0c\u76f4\u63a5\u8b93\u5c40\u90e8\u6230\u9b25\u6539\u8b8a\u3002",
+    };
+  }
+  const enemy = opponent(color);
+  const neighbors = neighborsOfKey(key);
+  const friendlyNeighbors = neighbors.filter((nextKey) => source[nextKey] === color);
+  const enemyNeighbors = neighbors.filter((nextKey) => source[nextKey] === enemy);
+  if (enemyNeighbors.length >= 2) {
+    return {
+      name: "\u65b7",
+      description: "\u4e0b\u5728\u5c0d\u65b9\u68cb\u5b50\u4e4b\u9593\uff0c\u50cf\u662f\u60f3\u5207\u65b7\u5c0d\u65b9\u7684\u9023\u7d61\u3002",
+    };
+  }
+  if (friendlyNeighbors.length >= 2) {
+    return {
+      name: "\u63a5",
+      description: "\u628a\u81ea\u5df1\u7684\u68cb\u5b50\u9023\u8d77\u4f86\uff0c\u8b93\u68cb\u5f62\u66f4\u5b8c\u6574\uff0c\u964d\u4f4e\u88ab\u5207\u65b7\u7684\u98a8\u96aa\u3002",
+    };
+  }
+  if (enemyNeighbors.length === 1) {
+    return {
+      name: "\u78b0\uff0f\u9760",
+      description: "\u8cbc\u8457\u5c0d\u65b9\u68cb\u5b50\u4e0b\uff0c\u901a\u5e38\u662f\u60f3\u767c\u8d77\u63a5\u89f8\u6230\u6216\u58d3\u7e2e\u5c0d\u65b9\u3002",
+    };
+  }
+  return null;
+}
+
+function explainMoveTerm(key, color, source, capturedCount) {
+  if (mode !== "square") {
+    return colorName(color) + " " + labelOfKey(key) + "\uff1a\u76ee\u524d\u8853\u8a9e\u63d0\u793a\u5148\u652f\u63f4\u6a19\u6e96\u65b9\u683c\u68cb\u76e4\u3002";
+  }
+  const term = tacticalTerm(key, color, source, capturedCount)
+    || cornerOpeningTerm(key, color, source)
+    || relationTermFromFriendlyStone(key, color, source)
+    || { name: "\u843d\u5b50", description: "\u9019\u624b\u5148\u627e\u4e0d\u5230\u660e\u986f\u8853\u8a9e\uff0c\u53ef\u4ee5\u628a\u5b83\u770b\u6210\u4e00\u822c\u7684\u5c40\u90e8\u88dc\u5f37\u6216\u4f48\u5c40\u3002" };
+  return colorName(color) + " " + labelOfKey(key) + "\uff1a" + term.name + "\u3002" + term.description;
+}
+
+function updateTermHint(key, color, source, capturedCount) {
+  setTermHint(explainMoveTerm(key, color, source, capturedCount));
+}
+
 function startGame(nextPlayMode) {
   playMode = nextPlayMode;
   onlineAiHintsEnabled = false;
@@ -1628,6 +1770,8 @@ function tryPlay(key, fromAi = false) {
   }
 
   const snapshotKey = boardKey();
+  const beforeMoveBoard = board;
+  const playedColor = turn;
   const next = cloneCells(board);
   const nextMoveNumbers = cloneCells(moveNumbers);
   next[key] = turn;
@@ -1666,7 +1810,8 @@ function tryPlay(key, fromAi = false) {
   moveNumbers = nextMoveNumbers;
   lastMoveKey = key;
   captures[turn] += capturedCount;
-  log.push(`${colorName(turn)} ${labelOfKey(key)}${capturedCount ? `，提 ${capturedCount} 子` : ""}`);
+  log.push(`${colorName(turn)} ${labelOfKey(key)}${capturedCount ? `\uff0c\u63d0 ${capturedCount} \u5b50` : ""}`);
+  updateTermHint(key, playedColor, beforeMoveBoard, capturedCount);
   previousBoardKey = snapshotKey;
   turn = enemy;
   passCount = 0;
@@ -2113,7 +2258,8 @@ function resetGame(nextMode = mode, nextSize = size) {
   resignationState = null;
   endgamePromptShown = false;
   v4WhiteWinRate = null;
-  setStatus("黑棋先下");
+  setStatus("\u9ed1\u68cb\u5148\u4e0b");
+  setTermHint("\u843d\u5b50\u5f8c\u6703\u986f\u793a\u5e38\u898b\u8853\u8a9e\uff0c\u4f8b\u5982\u9577\u3001\u7acb\u3001\u63a5\u3001\u65b7\u3001\u5c0f\u98db\u6216\u639b\u89d2\u3002");
   render();
   sendOnlineState("new-game");
   updateOnlineStatus();

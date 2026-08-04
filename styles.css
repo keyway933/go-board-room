@@ -382,6 +382,26 @@ h3 {
   border: 1px solid rgba(32, 36, 42, 0.1);
   border-radius: 8px;
 }
+.term-panel {
+  margin-top: 10px;
+  padding: 10px 12px;
+  color: var(--ink);
+  line-height: 1.55;
+  background: #fbf7ef;
+  border: 1px solid rgba(45, 123, 118, 0.22);
+  border-radius: 8px;
+}
+
+.term-panel strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--accent);
+  font-size: 0.92rem;
+}
+
+.term-panel p {
+  color: var(--muted);
+}
 
 .turn-card {
   display: flex;
@@ -1093,4 +1113,3 @@ h3 {
     max-height: 1710px;
   }
 }
-
