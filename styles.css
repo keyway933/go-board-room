@@ -467,7 +467,7 @@ h3 {
 .ai-side-info {
   display: none;
   grid-column: 1;
-  grid-row: 1;
+  grid-row: 2;
 }
 
 .play-mode-ai .ai-side-info {

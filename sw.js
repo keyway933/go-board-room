@@ -1,4 +1,4 @@
-const CACHE_NAME = "go-board-room-v40-ai-side-order";
+const CACHE_NAME = "go-board-room-v41-side-dom-order";
 const ASSETS = [
   "./",
   "./index.html",
