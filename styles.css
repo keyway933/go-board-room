@@ -472,10 +472,11 @@ h3 {
 
 .play-mode-ai .ai-side-info {
   display: block;
+  grid-row: 2;
 }
 
 .play-mode-ai .rules-note {
-  grid-row: 2;
+  grid-row: 1;
 }
 
 .play-mode-ai .move-log {
