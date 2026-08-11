@@ -2,7 +2,9 @@ const canvas = document.querySelector("#goBoard");
 const ctx = canvas.getContext("2d");
 const appTitle = document.querySelector("#appTitle");
 const statusText = document.querySelector("#statusText");
+const sideStatusText = document.querySelector("#sideStatusText");
 const termText = document.querySelector("#termText");
+const sideTermText = document.querySelector("#sideTermText");
 const turnText = document.querySelector("#turnText");
 const turnCard = document.querySelector("#turnCard");
 const blackCapturesEl = document.querySelector("#blackCaptures");
@@ -853,6 +855,7 @@ function opponent(color) {
 
 function setTermHint(message) {
   if (termText) termText.textContent = message;
+  if (sideTermText) sideTermText.textContent = message;
 }
 
 function pointDistance(left, right) {
@@ -992,8 +995,16 @@ function updateTermHint(key, color, source, capturedCount) {
   setTermHint(explainMoveTerm(key, color, source, capturedCount));
 }
 
+function updatePlayModeClass() {
+  if (!gameShell) return;
+  gameShell.classList.toggle("play-mode-ai", playMode === "ai");
+  gameShell.classList.toggle("play-mode-traditional", playMode === "traditional");
+  gameShell.classList.toggle("play-mode-online", playMode === "online");
+}
+
 function startGame(nextPlayMode) {
   playMode = nextPlayMode;
+  updatePlayModeClass();
   onlineAiHintsEnabled = false;
   if (playMode !== "ai") aiHintsEnabled = false;
   blackAiHintsEnabled = false;
@@ -1021,6 +1032,7 @@ function showMainMenu() {
   onlineAiHintsEnabled = false;
   resetOnlineConnection();
   gameShell.classList.add("is-hidden");
+  gameShell.classList.remove("play-mode-ai", "play-mode-traditional", "play-mode-online");
   startScreen.classList.remove("is-hidden");
 }
 
@@ -2267,6 +2279,7 @@ function resetGame(nextMode = mode, nextSize = size) {
 
 function setStatus(message) {
   statusText.textContent = message;
+  if (sideStatusText) sideStatusText.textContent = message;
 }
 
 function render() {
@@ -3427,6 +3440,7 @@ function listPeerIds(Peer) {
 function prepareOnlineBoard(role, color, room, withAiHint, options, extra = "") {
   resetOnlineConnection();
   playMode = "online";
+  updatePlayModeClass();
   onlineAiHintsEnabled = Boolean(withAiHint);
   aiHintsEnabled = false;
   onlineState.role = role;
@@ -3689,6 +3703,7 @@ function attachOnlineConnection(conn) {
 async function startOnlineHost(withAiHint = false, options = {}) {
   resetOnlineConnection();
   playMode = "online";
+  updatePlayModeClass();
   onlineAiHintsEnabled = Boolean(withAiHint);
   aiHintsEnabled = false;
   onlineState.role = "host";
@@ -3729,6 +3744,7 @@ async function startOnlineGuest(roomCode, withAiHint = false, options = {}) {
   }
   resetOnlineConnection();
   playMode = "online";
+  updatePlayModeClass();
   onlineAiHintsEnabled = Boolean(withAiHint);
   aiHintsEnabled = false;
   onlineState.role = "guest";

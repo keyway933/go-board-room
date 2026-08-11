@@ -464,6 +464,35 @@ h3 {
   grid-row: 1;
 }
 
+.ai-side-info {
+  display: none;
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.play-mode-ai .ai-side-info {
+  display: block;
+}
+
+.play-mode-ai .rules-note {
+  grid-row: 2;
+}
+
+.play-mode-ai .move-log {
+  grid-row: 3;
+}
+
+.play-mode-ai .result-panel {
+  grid-row: 4;
+}
+
+@media (min-width: 1025px) {
+  .play-mode-ai .board-panel > .board-status,
+  .play-mode-ai .board-panel > .term-panel {
+    display: none;
+  }
+}
+
 .rules-note {
   grid-column: 1;
   grid-row: 1;
@@ -1056,11 +1085,16 @@ h3 {
 
   .board-panel,
   .controls,
+  .ai-side-info,
   .result-panel,
   .rules-note,
   .move-log {
     grid-column: 1;
     grid-row: auto;
+  }
+
+  .play-mode-ai .ai-side-info {
+    display: none;
   }
 
   .board-panel {
