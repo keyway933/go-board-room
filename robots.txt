@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://keyway933.github.io/go-board-room/sitemap.xml

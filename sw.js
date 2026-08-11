@@ -1,9 +1,15 @@
-const CACHE_NAME = "go-board-room-v37-term-hints";
+const CACHE_NAME = "go-board-room-v38-adsense-compliance";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./sitemap.xml",
+  "./robots.txt",
+  "./contact.html",
+  "./privacy.html",
+  "./about.html",
+  "./guide.html",
   "./manifest.webmanifest",
   "./icon.svg",
   "./models/v4-sgf-web.onnx",
