@@ -459,6 +459,14 @@ h3 {
   padding: 14px;
 }
 
+.left-stack {
+  grid-column: 1;
+  grid-row: 1 / span 4;
+  display: grid;
+  gap: 18px;
+  align-content: start;
+}
+
 .controls {
   grid-column: 3;
   grid-row: 1;
@@ -466,25 +474,10 @@ h3 {
 
 .ai-side-info {
   display: none;
-  grid-column: 1;
-  grid-row: 2;
 }
 
 .play-mode-ai .ai-side-info {
   display: block;
-  grid-row: 2;
-}
-
-.play-mode-ai .rules-note {
-  grid-row: 1;
-}
-
-.play-mode-ai .move-log {
-  grid-row: 3;
-}
-
-.play-mode-ai .result-panel {
-  grid-row: 4;
 }
 
 @media (min-width: 1025px) {
@@ -494,19 +487,10 @@ h3 {
   }
 }
 
-.rules-note {
-  grid-column: 1;
-  grid-row: 1;
-}
-
-.move-log {
-  grid-column: 1;
-  grid-row: 2;
-}
-
+.rules-note,
+.move-log,
 .result-panel {
-  grid-column: 1;
-  grid-row: 3;
+  min-width: 0;
 }
 
 .segmented {
@@ -1038,19 +1022,9 @@ h3 {
     grid-row: 1;
   }
 
-  .result-panel {
+  .left-stack {
     grid-column: 2;
-    grid-row: 2;
-  }
-
-  .rules-note {
-    grid-column: 2;
-    grid-row: 3;
-  }
-
-  .move-log {
-    grid-column: 2;
-    grid-row: 4;
+    grid-row: 2 / span 3;
   }
 
   .history-grid {
@@ -1077,6 +1051,7 @@ h3 {
   }
 
   .app-shell > *,
+  .left-stack,
   .side-panel section {
     width: calc(100vw - 16px);
     max-width: calc(100vw - 16px);
@@ -1086,10 +1061,7 @@ h3 {
 
   .board-panel,
   .controls,
-  .ai-side-info,
-  .result-panel,
-  .rules-note,
-  .move-log {
+  .left-stack {
     grid-column: 1;
     grid-row: auto;
   }
