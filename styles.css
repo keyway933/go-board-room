@@ -473,16 +473,12 @@ h3 {
 }
 
 .ai-side-info {
-  display: none;
-}
-
-.play-mode-ai .ai-side-info {
   display: block;
 }
 
 @media (min-width: 1025px) {
-  .play-mode-ai .board-panel > .board-status,
-  .play-mode-ai .board-panel > .term-panel {
+  .board-panel > .board-status,
+  .board-panel > .term-panel {
     display: none;
   }
 }
@@ -1066,7 +1062,7 @@ h3 {
     grid-row: auto;
   }
 
-  .play-mode-ai .ai-side-info {
+  .ai-side-info {
     display: none;
   }
 
